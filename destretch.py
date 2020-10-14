@@ -25,6 +25,11 @@ class Destretch_params():
         self.by = by
         self.cpx = cpx
         self.cpy = cpy
+    
+    def print_props(self):
+        print("[kx, ky, wx, wy, bx, by, cpx, cpy] are:")
+        print(self.kx, self.ky, self.wx, self.wy, self.bx, self.by,
+              self.cpx, self.cpy)
               
 def bilin(s, xy, d_info, nearest_neighbor = False):
     """
@@ -47,17 +52,17 @@ def bilin(s, xy, d_info, nearest_neighbor = False):
     """
     
     if nearest_neighbor == True:
-        x = np.fix(xy[:, :, 0] + .5)
-        y = np.fix(xy[:, :, 1] + .5)    
+        x = np.array(xy[:, :, 0] + .5)
+        y = np.array(xy[:, :, 1] + .5)    
     
     else:
         x = np.array(xy[:, :, 0])
         y = np.array(xy[:, :, 1])
         
-        x0 = np.fix(x)
-        x1 = np.fix(x+1)
-        y0 = np.fix(y)
-        y1 = np.fix(y+1)
+        x0 = x.astype(int)
+        x1 = (x+1).astype(int)
+        y0 = (y).astype(int)
+        y1 = (y+1).astype(int)
         
         fx = x % 1.
         fy = y % 1.
@@ -100,16 +105,18 @@ def patch(compx, compy, s, t):
     len_s = len(s)
     len_t = len(t)
     ans = np.zeros((len_s, len_t, 2))
-    
-    ss = [s**3, s**2, s, s**0]
-    tt = [t**3, t**2, t, t**0]
-    
-    ans[:, :, 0] = np.matmul(np.matmul(s, compx), tt)
-    ans[:, :, 1] = np.matmul(np.matmul(s, compy), tt)
+
+    ss = np.concatenate((s**3, s**2, s, s**0))
+    ss = np.reshape(ss, (len_s, 4))
+    tt = np.concatenate((t**3, t**2, t, t**0))
+    tt = np.reshape(tt, (len_t, 4)).transpose()
+    print(np.matmul(tt, compx))
+    ans[:, :, 0] = np.matmul(np.matmul(tt, compx), ss)
+    ans[:, :, 1] = np.matmul(np.matmul(tt, compy), ss)
     
     return ans
 
-def extend(r, d, rd, sd):
+def extend(r, d):
     """
     Extend reference and actual displacements to cover whole
     scene
@@ -143,7 +150,7 @@ def extend(r, d, rd, sd):
         rd[:, i] = z
     
     sd = np.zeros((ns, nt))
-    sd[3:ns-4, 3:nt-4] = d -r
+    sd[3:ns-3, 3:nt-3] = d -r
     
     x = sd[:, 3]
     sd[:, 0] = x
@@ -170,7 +177,7 @@ def extend(r, d, rd, sd):
     sd = np.transpose(sd)
     sd = sd + rd
     
-    return rs, sd
+    return rd, sd
 
 def bspline(scene, r, dd, d_info):
     """
@@ -220,8 +227,8 @@ def bspline(scene, r, dd, d_info):
         Ry = np.transpose(Ry)
         Py = np.transpose(Py)
 
-    Ms = [-1,3,-3,1, 3,-6,0,4, -3,3,3,1, 1,0,0,0]/6.
-    Ms = np.reshape(Ms, (4, 4), order='R')
+    Ms = np.array([-1,3,-3,1, 3,-6,0,4, -3,3,3,1, 1,0,0,0])/6.
+    Ms = np.reshape(Ms, (4, 4))
     MsT = np.transpose(Ms)
 
     sz = scene.shape
@@ -237,7 +244,7 @@ def bspline(scene, r, dd, d_info):
         t0 = np.amax([t0, 0]) 
         tn = np.amin([tn, ny-1])
         t = np.arange(tn-t0)/dt + (t0-Ry[1, v+1])/dt
-        for u in range(0,dsz(2)+3):
+        for u in range(0,dsz[1]+3):
             s0 = Rx[u+1, v+1]
             sn = Rx[u+2, v+1]
         
@@ -268,30 +275,51 @@ def mask(nx, ny):
     None.
 
     """
-    
-    m = np.ones((nx, ny))
+    m = np.ones((int(nx), int(ny)))
     
     return m
 
 def smouth(nx, ny):
+    """
+    WORKS! Checked against IDl
+
+    Parameters
+    ----------
+    nx : TYPE
+        DESCRIPTION.
+    ny : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    mm : TYPE
+        DESCRIPTION.
+
+    """
 
     x = np.arange(nx//2)
     if nx % 2 == 1:
-        x = [x, x[nx//2-1], np.rotate(x, 2)]
+        x = np.concatenate([x, x[nx//2:nx//2+1], np.flip(x)])
     else:
-        x = [x, np.rotate(x, 2)]
-    
-    x = np.exp(-1*(x/(nx/6 > 10))**2)
+        x = np.array([x, np.flip(x)]).flatten()
+    if nx > 60:
+        magic_number = nx
+    else:
+        magic_number = 10
+    x = np.exp(-1*(x/(magic_number))**2)
 
     y = np.arange(ny//2)
     if (ny % 2) == 1:
-        y = [y, y(ny/2-1), np.rotate(y, 2)] 
+        y = np.concatenate([y, y[ny//2:ny//2+1], np.flip(y)])
     else:
-        y = [y, np.rotate(y,2)]
-         
-        y = np.exp(-1*(y/(ny/6 > 10))**2)
-    
-    mm = np.matmul(x, y)
+        y = np.array([y, np.flip(y)]).flatten()
+    if ny > 60:
+        magic_number = ny
+    else:
+        magic_number = 10
+    y = np.exp(-1*(y/(magic_number))**2)
+
+    mm = np.outer(x.T, y)
 
     return mm
 
@@ -324,9 +352,9 @@ def doref(ref, mask, d_info):
         hx = lx + d_info.wx - 1
         for i in range(0, d_info.cpx):
             z = ref[lx:hx+1, ly:hy+1]
-            # z = z - np.sum(z)/nelz
-            z=z-np.polyfit(z[0,  :], z[1:, ],1)
-            win[:, :, i, j] = np.conj(np.fft2(z*mask, -1))
+            z = z - np.sum(z)/nelz
+            #z=z-np.polyfit(z[0,  :], z[1:, ],1)
+            win[:, :, i, j] = np.conj(np.fft.fft2(z*mask))
 
             lx = lx + d_info.kx
             hx = hx + d_info.kx
@@ -368,20 +396,21 @@ def cploc(s, w, mask, smou, d_info):
     for j in range(0, d_info.cpy):
         lx = d_info.bx
         hx = lx + d_info.wx
-    
+        
         for i in range(0, d_info.cpx):
 
             #cross correlation, inline
             ss = s[lx:hx, ly:hy]
 
             #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
-            ss_fft = np.fft2(ss) * w[:, :, i, j] * smou
-            cc = np.roll(np.abs(np.ifft2(ss_fft)),
-                         (d_info.wx/2, d_info.wy/2), axis=(0, 1))
+            ss_fft = np.fft.fft2(ss) * w[:, :, i, j] * smou
+            ss_ifft = np.abs(np.fft.ifft2(ss_fft))
+            cc = np.roll(ss_ifft, (d_info.wx//2, d_info.wy//2), 
+                         axis=(0, 1))
 
             cc = np.array(cc)
             mx  = np.amax(cc)
-            loc = cc.argmax(cc)
+            loc = cc.argmax()
             
         
             ccsz = cc.shape
@@ -396,7 +425,7 @@ def cploc(s, w, mask, smou, d_info):
                 denom = mx*2 - cc[xmax-1,ymax] - cc[xmax+1,ymax]
                 xfra = (xmax-.5) + (mx-cc[xmax-1,ymax])/denom
 
-                denom = mx*2 - cc(xmax,ymax-1) - cc(xmax,ymax+1)
+                denom = mx*2 - cc[xmax,ymax-1] - cc[xmax,ymax+1]
                 yfra = (ymax-.5) + (mx-cc[xmax,ymax-1])/denom
 
                 xmax=xfra
@@ -462,8 +491,8 @@ def doreg(scene, r, d, d_info):
 
     """
     
-    xy = bspline(scene, r, d, d_info)
-    ans = bilin(scene, xy, 0)
+    xy = bspline(scene, r, d, d_info,)
+    ans = bilin(scene, xy, d_info)
     
     return ans
          
@@ -487,30 +516,29 @@ def mkcps(ref, kernel):
         DESCRIPTION.
 
     """
-    ksz = kernel.shape()
-    kx = ksz[0]
-    ky = ksz[1]
+    ksz = kernel
+    kx = int(ksz[0])
+    ky = int(ksz[1])
 
 
     a = 20./np.sqrt(2.)
     b = 20./np.log(2.)
 
-    wx = np.fix(kx*2)
-    wy = np.fix(ky*2)
+    wx = int(kx*2)
+    wy = int(ky*2)
 
     if (wx % 2):
-        wx = wx + 1
+        wx = int(wx + 1)
     if (wy % 2):
-        wy = wy + 1
-    
+        wy = int(wy + 1)
+
     rsz = ref.shape
-    cpx = (rsz[0] - wx + kx)/kx
-    cpy = (rsz[1] - wy + ky)/ky
-
-    bx = ((rsz[0] - wx + kx) % kx)/2
-    by = ((rsz[1] - wy + ky) % ky)/2
-
-    rcps = np.zeros((2,cpx,cpy))
+    cpx = int((rsz[0] - wx + kx)//kx)
+    cpy = int((rsz[1] - wy + ky)//ky)
+  
+    bx = int(((rsz[0] - wx + kx) % kx)/2)
+    by = int(((rsz[1] - wy + ky) % ky)/2)
+    rcps = np.zeros((2, cpx, cpy))
     ly = by
     hy = ly + wy
     for j in range(0, cpy):
@@ -574,8 +602,9 @@ def repair(ref, disp, d_info):
     limit = (np.amax([kkx,kky])*TOOFAR)**2
 
     good = disp
-    for frm in range(0, nf):
-        kps = np.reshape(disp[:, :, :,frm], (2, nx, ny))
+    print(disp.shape)
+
+    kps = np.reshape(disp[:, :, :], (2, nx, ny))
     
     diff = kps - ref
 
@@ -589,7 +618,7 @@ def repair(ref, disp, d_info):
         y = i // nx
         
         if bad[x, y] == 1:
-            good [:, x, y, frm] = ref[:, x, y]
+            good [:, x, y] = ref[:, x, y]
             i += 1
         j += 1     
     return good
@@ -685,28 +714,23 @@ def reg(scene, ref, kernel, rdisp, disp, apply_scene=0):
     win = doref(ref, mm, d_info)
 
     ssz = scene.shape
-    nf = ssz[2]
-    ans = np.zeros((ssz[0], ssz[1], nf))
+    ans = np.zeros((ssz[0], ssz[1]))
 
     # compute control point locations
-    for frm in range(0, nf):
-    
-        disp = cploc(scene[:, :,frm], win, mm, smou, d_info)
-        disp = repair(rdisp, disp, d_info) # optional repair
-        #rms = sqrt(total((rdisp - disp)^2)/n_elements(rdisp))
-        #print, 'rms =', rms
-        x = doreg(apply_scene[:, :, frm], rdisp, disp, d_info)
-        ans[:, :, frm] = x
+
+    disp = cploc(scene[:, :], win, mm, smou, d_info)
+    print(disp)
+    #disp = repair(rdisp, disp, d_info) # optional repair
+    #rms = sqrt(total((rdisp - disp)^2)/n_elements(rdisp))
+    #print, 'rms =', rms
+    x = doreg(apply_scene[:, :], rdisp, disp, d_info)
+    ans[:, :] = x
         #    win = doref (x, mm); optional update of window
 
     undo()
 
-    if ssz[2]:
-        scene = np.reshape(scene, (ssz[0], ssz[1]))
-        ans = np.reshape(ans, (2, ssz[0], ssz[1]))
-
     
-    return ans
+    return ans, disp, rdisp
 
 
 
