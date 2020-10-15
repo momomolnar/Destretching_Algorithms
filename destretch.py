@@ -52,12 +52,12 @@ def bilin(s, xy, d_info, nearest_neighbor = False):
     """
     
     if nearest_neighbor == True:
-        x = np.array(xy[:, :, 0] + .5)
-        y = np.array(xy[:, :, 1] + .5)    
+        x = np.array(xy[:, :, 0] + .5, order="F")
+        y = np.array(xy[:, :, 1] + .5, order="F")    
     
     else:
-        x = np.array(xy[:, :, 0])
-        y = np.array(xy[:, :, 1])
+        x = np.array(xy[:, :, 0], order="F")
+        y = np.array(xy[:, :, 1], order="F")
         
         x0 = x.astype(int)
         x1 = (x+1).astype(int)
@@ -67,7 +67,7 @@ def bilin(s, xy, d_info, nearest_neighbor = False):
         fx = x % 1.
         fy = y % 1.
         
-        s  = np.array(s)
+        s  = np.array(s, order="F")
         ss = s.astype(float)
         
         ss00 = ss[x0, y0]
@@ -99,20 +99,20 @@ def patch(compx, compy, s, t):
         Description
 
     """
-    s     = np.array(s)
-    t     = np.array(t)
+    s     = np.array(s, order="F")
+    t     = np.array(t, order="F")
     
     len_s = len(s)
     len_t = len(t)
-    ans = np.zeros((len_s, len_t, 2))
+    ans = np.zeros((len_s, len_t, 2), order="F")
 
     ss = np.concatenate((s**3, s**2, s, s**0))
     ss = np.reshape(ss, (len_s, 4))
     tt = np.concatenate((t**3, t**2, t, t**0))
     tt = np.reshape(tt, (len_t, 4)).transpose()
-    print(np.matmul(tt, compx))
-    ans[:, :, 0] = np.matmul(np.matmul(tt, compx), ss)
-    ans[:, :, 1] = np.matmul(np.matmul(tt, compy), ss)
+    
+    ans[:, :, 0] = np.matmul(np.matmul(ss, compx), tt)
+    ans[:, :, 1] = np.matmul(np.matmul(ss, compy), tt)
     
     return ans
 
@@ -142,14 +142,14 @@ def extend(r, d):
     ns  = dsz[0] + 6
     nt  = dsz[1] + 6
     
-    rd = np.zeros((ns, nt))
+    rd = np.zeros((ns, nt), order="F")
     dif = r[1, 0] - r[0, 0]    
     zro = r[0, 0] - 3*dif
     z   = np.arange(ns)*dif + zro
     for i in range(nt):
         rd[:, i] = z
     
-    sd = np.zeros((ns, nt))
+    sd = np.zeros((ns, nt), order="F")
     sd[3:ns-3, 3:nt-3] = d -r
     
     x = sd[:, 3]
@@ -227,34 +227,42 @@ def bspline(scene, r, dd, d_info):
         Ry = np.transpose(Ry)
         Py = np.transpose(Py)
 
-    Ms = np.array([-1,3,-3,1, 3,-6,0,4, -3,3,3,1, 1,0,0,0])/6.
+    Ms = np.array([-1,3,-3,1, 3,-6,0,4, -3,3,3,1, 1,0,0,0],
+                  order="F")/6.
     Ms = np.reshape(Ms, (4, 4))
-    MsT = np.transpose(Ms)
+    MsT = (Ms)
 
     sz = scene.shape
     nx = sz[0]
     ny = sz[1]
 
-    ans = np.zeros((nx, ny, 2))
+    ans = np.zeros((nx, ny, 2), order="F")
     for v in range(0, dsz[2]+3):
         t0 = Ry[1, v+1]
         tn = Ry[1, v+2]
         if ((tn < 0) or (t0 > ny-1)):
             break
-        t0 = np.amax([t0, 0]) 
-        tn = np.amin([tn, ny-1])
+        t0 = int(np.amax([t0, 0]))
+        tn = int(np.amin([tn, ny-1]))
         t = np.arange(tn-t0)/dt + (t0-Ry[1, v+1])/dt
+        print(t)
         for u in range(0,dsz[1]+3):
             s0 = Rx[u+1, v+1]
             sn = Rx[u+2, v+1]
-        
-            if (sn > 0) or (s0 < nx-1):
+            
+            if (sn < 0) or (s0 > nx-1):
                 break 
-            s0 = np.amax([s0,0])
-            sn = np.amin([sn, nx-1])
+            s0 = int(np.amax([s0, 0]))
+            sn = int(np.amin([sn, nx-1]))
             s = np.arange(sn-s0)/ds + (s0-Rx[u+1, v+1])/ds
-            compx = np.reshape(np.matmul(np.matmul(Ms, Px[u:u+4,v:v+4]), MsT), (4, 4))
-            compy = np.reshape(np.matmul(np.matmul(Ms, Py[u:u+4,v:v+4]), MsT), (4, 4))
+            print(s0, sn, t0, tn)
+            compx = np.reshape(np.matmul(np.matmul(Ms, 
+                                                   Px[u:u+4,v:v+4]),
+                                         MsT), (4, 4))
+            print(compx.shape)
+            compy = np.reshape(np.matmul(np.matmul(Ms, 
+                                                   Py[u:u+4,v:v+4]),
+                                         MsT), (4, 4))
             ans[s0:sn, t0:tn, :] = patch(compx, compy, s, t)
 
     return ans
@@ -275,7 +283,7 @@ def mask(nx, ny):
     None.
 
     """
-    m = np.ones((int(nx), int(ny)))
+    m = np.ones((int(nx), int(ny)), order="F")
     
     return m
 
@@ -299,22 +307,22 @@ def smouth(nx, ny):
 
     x = np.arange(nx//2)
     if nx % 2 == 1:
-        x = np.concatenate([x, x[nx//2:nx//2+1], np.flip(x)])
+        x = np.concatenate([x, x[nx//2-1:nx//2], np.flip(x)])
     else:
-        x = np.array([x, np.flip(x)]).flatten()
+        x = np.array([x, np.flip(x)],).flatten()
     if nx > 60:
-        magic_number = nx
+        magic_number = nx//6
     else:
         magic_number = 10
     x = np.exp(-1*(x/(magic_number))**2)
 
     y = np.arange(ny//2)
     if (ny % 2) == 1:
-        y = np.concatenate([y, y[ny//2:ny//2+1], np.flip(y)])
+        y = np.concatenate([y, y[ny//2-1:ny//2], np.flip(y)])
     else:
         y = np.array([y, np.flip(y)]).flatten()
     if ny > 60:
-        magic_number = ny
+        magic_number = ny//6
     else:
         magic_number = 10
     y = np.exp(-1*(y/(magic_number))**2)
@@ -343,7 +351,7 @@ def doref(ref, mask, d_info):
     """
     
     win = np.zeros((d_info.wx, d_info.wy, d_info.cpx, d_info.cpy),
-                   dtype="complex")
+                   dtype="complex", order="F")
     nelz = d_info.wx * d_info.wy
     ly = d_info.by
     hy = ly + d_info.wy -1 
@@ -387,7 +395,7 @@ def cploc(s, w, mask, smou, d_info):
 
     """
     
-    ans = np.zeros((2, d_info.cpx, d_info.cpy))
+    ans = np.zeros((2, d_info.cpx, d_info.cpy), order="F")
     
     nels = d_info.wx * d_info.wy
     
@@ -408,7 +416,7 @@ def cploc(s, w, mask, smou, d_info):
             cc = np.roll(ss_ifft, (d_info.wx//2, d_info.wy//2), 
                          axis=(0, 1))
 
-            cc = np.array(cc)
+            cc = np.array(cc, order="F")
             mx  = np.amax(cc)
             loc = cc.argmax()
             
@@ -419,6 +427,7 @@ def cploc(s, w, mask, smou, d_info):
 
             #a more complicated interpolation
             #(from Niblack, W: An Introduction to Digital Image Processing, p 139.)
+            
             if ((xmax*ymax > 0) and (xmax < (ccsz[0]-1)) 
                 and (ymax < (ccsz[1]-1))):
     
@@ -430,12 +439,17 @@ def cploc(s, w, mask, smou, d_info):
 
                 xmax=xfra
                 ymax=yfra
+            
+
+            ans[0,i,j] = lx + xmax
+            ans[1,i,j] = ly + ymax
         
-        ans[0,i,j] = lx + xmax
-        ans[1,i,j] = ly + ymax
+            lx = lx + d_info.kx
+            hx = hx + d_info.kx
         
-        lx = lx + d_info.kx
-        hx = hx + d_info.kx
+        ly = ly + d_info.ky
+        hy = hy + d_info.ky
+        
         
     return ans
     
@@ -498,6 +512,7 @@ def doreg(scene, r, d, d_info):
          
 def mkcps(ref, kernel):
     """
+    Seems to work
     Choose control point locations in the reference
 
     Parameters
@@ -516,9 +531,9 @@ def mkcps(ref, kernel):
         DESCRIPTION.
 
     """
-    ksz = kernel
-    kx = int(ksz[0])
-    ky = int(ksz[1])
+    ksz = kernel.shape
+    kx = ksz[0]
+    ky = ksz[1]
 
 
     a = 20./np.sqrt(2.)
@@ -538,7 +553,7 @@ def mkcps(ref, kernel):
   
     bx = int(((rsz[0] - wx + kx) % kx)/2)
     by = int(((rsz[1] - wy + ky) % ky)/2)
-    rcps = np.zeros((2, cpx, cpy))
+    rcps = np.zeros((2, cpx, cpy), order="F")
     ly = by
     hy = ly + wy
     for j in range(0, cpy):
@@ -601,7 +616,7 @@ def repair(ref, disp, d_info):
     kky = ref[1, 0, 1] - ref[1, 0, 0]
     limit = (np.amax([kkx,kky])*TOOFAR)**2
 
-    good = disp
+    good = disp + 0
     print(disp.shape)
 
     kps = np.reshape(disp[:, :, :], (2, nx, ny))
@@ -609,7 +624,8 @@ def repair(ref, disp, d_info):
     diff = kps - ref
 
     # list of bad coordinates in this frame
-    bad = np.where((diff[0, :, :]**2 + diff[1, :, :]**2) > limit, 1, 0)
+    bad = np.where((diff[0, :, :]**2 + diff[1, :, :]**2) > limit, 
+                   1, 0)
     bad_count = np.sum(bad)
     i = 0
     j = 0
@@ -649,19 +665,19 @@ def cps(scene, ref, kernel):
     d_info, rdisp = mkcps(ref, kernel)
 
 
-    mm=np.zeros((d_info.wx,d_info.wy))
+    mm=np.zeros((d_info.wx,d_info.wy), order="F")
     mm[:, :] = 1
 
-    smou=np.zeros((d_info.wx,d_info.wy))
+    smou=np.zeros((d_info.wx,d_info.wy), order="F")
     smou[:, :] = 1
 
 
-    ref=ref/np.average(ref)*np.average(scene)
+    ref = ref/np.average(ref)*np.average(scene)
     win = doref(ref, mm, d_info)
 
     ssz = scene.shape
     nf = ssz[2]
-    ans = np.zeros((2, d_info.cpx, d_info.cpy, nf))
+    ans = np.zeros((2, d_info.cpx, d_info.cpy, nf), order="F")
 
 
 
@@ -687,8 +703,8 @@ def reg(scene, ref, kernel, rdisp, disp, apply_scene=0):
         Scene to be registered
     ref : [nx, ny]
         reference frame
-    kernel : [kx, ky]
-       Kernel size (otherwise unused)
+    kernel : [kx, ky] bit array == np.zeros((kx, ky))
+       Kernel size (otherwise unused)!!!!!
     apply_scene : TYPE
         DESCRIPTION.
     rdisp : TYPE
@@ -714,12 +730,11 @@ def reg(scene, ref, kernel, rdisp, disp, apply_scene=0):
     win = doref(ref, mm, d_info)
 
     ssz = scene.shape
-    ans = np.zeros((ssz[0], ssz[1]))
+    ans = np.zeros((ssz[0], ssz[1]), order="F")
 
     # compute control point locations
 
     disp = cploc(scene[:, :], win, mm, smou, d_info)
-    print(disp)
     #disp = repair(rdisp, disp, d_info) # optional repair
     #rms = sqrt(total((rdisp - disp)^2)/n_elements(rdisp))
     #print, 'rms =', rms
