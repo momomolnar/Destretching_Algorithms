@@ -14,6 +14,7 @@ import scipy as sp
 from scipy import signal as signal
 from scipy.ndimage.interpolation import shift
 from scipy.interpolate import RectBivariateSpline
+import matplotlib.pyplot as pl
 
 class Destretch_params():
     
@@ -114,7 +115,7 @@ def bilin_control_points(scene, rdisp, disp):
     
     #compute the displacements 
     
-    xy_ref_coordinates = np.zeros((2, scene_nx, scene_ny))
+    xy_ref_coordinates = np.zeros((2, scene_nx, scene_ny), order="F")
     
     for elx in range(scene_nx):
         for ely in range(scene_ny):
@@ -132,11 +133,20 @@ def bilin_control_points(scene, rdisp, disp):
     x_coords_output = np.linspace(0, scene_nx-1, num=scene_nx)
     y_coords_output = np.linspace(0, scene_ny-1, num=scene_ny)
     
-    xy_grid[0, :, :] = interp_x.__call__(x_coords_output, y_coords_output,
+    xy_grid[1, :, :] = 1.3*interp_x.__call__(x_coords_output, y_coords_output,
                                          grid=True)
-    xy_grid[1, :, :] = interp_y.__call__(x_coords_output, y_coords_output,
+    xy_grid[0, :, :] = 1.3*interp_y.__call__(x_coords_output, y_coords_output,
                                          grid=True)
-    return (xy_grid + xy_ref_coordinates)
+    
+    pl.imshow(xy_grid[0, :, :])
+    pl.show()
+    pl.imshow(xy_grid[1, :, :])
+    pl.show()
+    
+    xy_grid += xy_ref_coordinates
+
+    
+    return (xy_grid)
 
 def bspline(scene, r, dd, d_info):
     """
