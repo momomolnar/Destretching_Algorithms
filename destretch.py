@@ -61,13 +61,28 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
     
     else:
         
-        x = np.array(xy[0, 10:-10, 10:-10], order="F")
-        y = np.array(xy[1, 10:-10, 10:-10], order="F")
+        x = np.array(xy[0, :, :], order="F")
+        y = np.array(xy[1, :, :], order="F")
+        
+        nx = s.shape[0]
+        ny = s.shape[1]
+        
+        for elx in range(nx):
+            for ely in range(ny):
+                if x[elx, ely] > (nx -1) or x[elx, ely] < 0:
+                    x[elx, ely] = nx - 2
+                if y[elx, ely] > (ny -1) or y[elx, ely] < 0:
+                    y[elx, ely] = ny - 2 
+               
+
         
         x0 = x.astype(int)
         x1 = (x+1).astype(int)
         y0 = (y).astype(int)
         y1 = (y+1).astype(int)
+        
+
+                
         
         fx = x % 1.
         fy = y % 1.
@@ -133,15 +148,18 @@ def bilin_control_points(scene, rdisp, disp):
     x_coords_output = np.linspace(0, scene_nx-1, num=scene_nx)
     y_coords_output = np.linspace(0, scene_ny-1, num=scene_ny)
     
-    xy_grid[1, :, :] = 1.3*interp_x.__call__(x_coords_output, y_coords_output,
+    xy_grid[1, :, :] = 1. * interp_x.__call__(x_coords_output, y_coords_output,
                                          grid=True)
-    xy_grid[0, :, :] = 1.3*interp_y.__call__(x_coords_output, y_coords_output,
+    xy_grid[0, :, :] = 1. *interp_y.__call__(x_coords_output, y_coords_output,
                                          grid=True)
     
-    pl.imshow(xy_grid[0, :, :])
-    pl.show()
-    pl.imshow(xy_grid[1, :, :])
-    pl.show()
+    # im1 = pl.imshow(xy_grid[0, :, :])
+    # pl.colorbar(im1)
+    # pl.show()
+    
+    # im2 = pl.imshow(xy_grid[1, :, :])
+    # pl.colorbar(im2)
+    # pl.show()
     
     xy_grid += xy_ref_coordinates
 
@@ -762,7 +780,7 @@ def cps(scene, ref, kernel):
     
     return ans
 
-def reg(scene, ref, kernel):
+def reg(scene, ref, kernel_size):
     """
     Register scenes with respect to ref using kernel size and
     then returns the destretched scene.
@@ -773,15 +791,21 @@ def reg(scene, ref, kernel):
         Scene to be registered
     ref : [nx, ny]
         reference frame
-    kernel : [kx, ky] bit array == np.zeros((kx, ky))
+    kernel_size : int 
        Kernel size (otherwise unused)!!!!!
 
     Returns
     -------
     ans : [nx, ny]
         Destreched scene.
+    disp : ndarray (kx, ky)
+        Control point locations
+    rdisp : ndarray (kx, ky)
+        Reference control point locations
 
     """
+    
+    kernel = np.zeros((kernel_size, kernel_size))
     
     d_info, rdisp = mkcps(ref, kernel)
     mm = mask(d_info.wx, d_info.wy)
@@ -808,5 +832,49 @@ def reg(scene, ref, kernel):
     
     return ans, disp, rdisp, d_info
 
+def reg_loop(scene, ref, kernel_sizes):
+    """
+    
 
+    Parameters
+    ----------
+    scene : ndarray (nx, ny)
+        Image to be destretched
+    ref : ndarray (nx, ny)
+        Reference image
+    kernel_sizes : ndarray (n_kernels) 
+        Sizes of the consecutive kernels to be applied 
 
+    Returns
+    -------
+    ans : ndarray (nx, ny)
+        Destretched scene
+    d_info: Destretch class 
+        Parameters of the destretching
+    """
+    
+    
+    scene_temp = scene 
+    
+    for el in kernel_sizes:
+        scene_temp, disp, rdisp, d_info = reg(scene_temp, ref, el)
+    
+    ans = scene_temp
+    
+    return ans, disp, rdisp, d_info
+
+def test_destretch(scene, ref, kernel_size):
+    
+    ans1, disp, rdisp, d_info = reg_loop(scene, ref, kernel_size)
+    
+    pl.imshow(scene, origin=0)
+    pl.title("Original scene")
+    pl.show()
+    
+    pl.imshow(ans1, origin=0)
+    pl.title("Destretched scene")
+    pl.show()
+    
+    pl.imshow(ref, origin=0)
+    pl.title("Reference")
+    pl.show()    
