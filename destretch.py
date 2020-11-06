@@ -17,7 +17,11 @@ from scipy.interpolate import RectBivariateSpline
 import matplotlib.pyplot as pl
 
 class Destretch_params():
-    
+    """
+    Class containing all the information about then
+
+    """
+
     def __init__(self, kx, ky, wx, wy, bx, by, cpx, cpy):
         self.kx = kx
         self.ky = ky
@@ -27,23 +31,27 @@ class Destretch_params():
         self.by = by
         self.cpx = cpx
         self.cpy = cpy
-    
+
     def print_props(self):
         print("[kx, ky, wx, wy, bx, by, cpx, cpy] are:")
         print(self.kx, self.ky, self.wx, self.wy, self.bx, self.by,
               self.cpx, self.cpy)
-              
+
+def plot_cps(ax_object, d_info):
+
+    return 0
+
 def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
     """
-    Bilinear interpolation (resampling) 
-    of the scene s at coordinates xy 
+    Bilinear interpolation (resampling)
+    of the scene s at coordinates xy
 
     Parameters
     ----------
     s : ndarray (nx, ny)
         Scene
     xy : ndarray (2, nx, ny)
-        coordinates of the pixels of the output image 
+        coordinates of the pixels of the output image
         on the input image (at which to interpolate the scene)
     d_info: class Destretch_Params
         Destretch parameters
@@ -54,39 +62,39 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
         Bilinear interpolated (resampled) image at the xy locations
 
     """
-    
+
     if nearest_neighbor == True:
         x = np.array(xy[:, :, 0] + .5, order="F")
-        y = np.array(xy[:, :, 1] + .5, order="F")    
-    
+        y = np.array(xy[:, :, 1] + .5, order="F")
+
     else:
-        
+
         x = np.array(xy[0, :, :], order="F")
         y = np.array(xy[1, :, :], order="F")
-        
+
         nx = s.shape[0]
         ny = s.shape[1]
-        
+
         for elx in range(nx):
             for ely in range(ny):
                 if x[elx, ely] > (nx -1) or x[elx, ely] < 0:
                     x[elx, ely] = nx - 2
                 if y[elx, ely] > (ny -1) or y[elx, ely] < 0:
-                    y[elx, ely] = ny - 2 
-               
+                    y[elx, ely] = ny - 2
 
-        
+
+
         x0 = x.astype(int)
         x1 = (x+1).astype(int)
         y0 = (y).astype(int)
         y1 = (y+1).astype(int)
-        
 
-                
-        
+
+
+
         fx = x % 1.
         fy = y % 1.
-        
+
         s  = np.array(s, order="F")
         ss = s.astype(float)
         print(x0)
@@ -95,14 +103,14 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
         ssfx = (ss[x1, y0] - ss00) * fx
         ssfy = fy * (ss01 - ss00 + (ss[x1, y1] - ss01) * fx - ssfx)
         ans  = ss00 + ssfx + ssfy
-    
+
     return ans
 
 def bilin_control_points(scene, rdisp, disp):
     """
-    Compute the coordinates of the pixels in the output images to be 
+    Compute the coordinates of the pixels in the output images to be
     sampled from the input image (using Scipy.interpolate.RectBivariate).
-    Interpolate the control point displacements to infer the sampling 
+    Interpolate the control point displacements to infer the sampling
     coordinates.
 
     Parameters
@@ -110,7 +118,7 @@ def bilin_control_points(scene, rdisp, disp):
     scene : ndarray (nx, ny)
         Image input
     rdisp : ndarray (kx, ky, 2)
-        Reference coordinates of the control points. 
+        Reference coordinates of the control points.
     disp : ndarray (kx, ky, 2)
         Actual coordinates of the control points.
 
@@ -120,50 +128,50 @@ def bilin_control_points(scene, rdisp, disp):
         Coordinates of the input image to be sampled for the output image
 
     """
-    
+
     scene_nx = scene.shape[0]
     scene_ny = scene.shape[1]
-    
-    #compute the control points locations 
+
+    #compute the control points locations
     cp_x_coords = rdisp[0, :, 0]
     cp_y_coords = rdisp[1, 0, :]
-    
-    #compute the displacements 
-    
+
+    #compute the displacements
+
     xy_ref_coordinates = np.zeros((2, scene_nx, scene_ny), order="F")
-    
+
     for elx in range(scene_nx):
         for ely in range(scene_ny):
             xy_ref_coordinates[0, elx, ely] = elx
             xy_ref_coordinates[1, elx, ely] = ely
-    
+
     dd = disp - rdisp
     print(dd)
-    
+
     interp_x = RectBivariateSpline(cp_x_coords, cp_y_coords, dd[0, :, :])
     interp_y = RectBivariateSpline(cp_x_coords, cp_y_coords, dd[1, :, :])
-    
+
     xy_grid = np.zeros((2, scene_nx, scene_ny))
-    
+
     x_coords_output = np.linspace(0, scene_nx-1, num=scene_nx)
     y_coords_output = np.linspace(0, scene_ny-1, num=scene_ny)
-    
+
     xy_grid[1, :, :] = 1. * interp_x.__call__(x_coords_output, y_coords_output,
                                          grid=True)
     xy_grid[0, :, :] = 1. *interp_y.__call__(x_coords_output, y_coords_output,
                                          grid=True)
-    
-    # im1 = pl.imshow(xy_grid[0, :, :])
-    # pl.colorbar(im1)
-    # pl.show()
-    
-    # im2 = pl.imshow(xy_grid[1, :, :])
-    # pl.colorbar(im2)
-    # pl.show()
-    
+
+    im1 = pl.imshow(xy_grid[0, :, :])
+    pl.colorbar(im1)
+    pl.show()
+
+    im2 = pl.imshow(xy_grid[1, :, :])
+    pl.colorbar(im2)
+    pl.show()
+
     xy_grid += xy_ref_coordinates
 
-    
+
     return (xy_grid)
 
 def bspline(scene, r, dd, d_info):
@@ -178,24 +186,24 @@ def bspline(scene, r, dd, d_info):
         reference displacements of control points
     dd : TYPE
         actual displacements of control points
-        
+
     d_info: Destretch_class
         info about the destretching
 
     Returns
     -------
-    ans : TYPE 
+    ans : TYPE
         Destretched image
 
     """
-    
+
     always = 1      # exterior control points drift with interior (best)
     #always = 0     ; exterior control points fixed by ref. displacements
 
     # a kludgery: increases magnitude of error, since
     # curve doesn't generally pass through the tie pts.
     d = (dd-r)*1.1 + r
-    
+
     ds = r[0, 1, 0]-r[0, 0, 0]
     dt = r[1, 0, 1]-r[1, 0, 0]
 
@@ -208,9 +216,9 @@ def bspline(scene, r, dd, d_info):
 
         ns = dsz[1]
         nt = dsz[2]
-        Rx, Px = extend(r[0, :, :], d[0, :, :]) 
-        Ry, Py = extend(r[1, :, :], d[1, :, :]) 
-    
+        Rx, Px = extend(r[0, :, :], d[0, :, :])
+        Ry, Py = extend(r[1, :, :], d[1, :, :])
+
         Ry = np.transpose(Ry)
         Py = np.transpose(Py)
 
@@ -235,21 +243,20 @@ def bspline(scene, r, dd, d_info):
         for u in range(0,dsz[1]+3):
             s0 = Rx[u+1, v+1]
             sn = Rx[u+2, v+1]
-            
+
             if (sn < 0) or (s0 > nx-1):
-                break 
+                break
             s0 = int(np.amax([s0, 0]))
             sn = int(np.amin([sn, nx-1]))
             s = np.arange(sn-s0)/ds + (s0-Rx[u+1, v+1])/ds
-            compx = np.reshape(np.matmul(np.matmul(Ms, 
+            compx = np.reshape(np.matmul(np.matmul(Ms,
                                                    Px[u:u+4,v:v+4]),
                                          MsT), (4, 4))
 
-            compy = np.reshape(np.matmul(np.matmul(Ms, 
+            compy = np.reshape(np.matmul(np.matmul(Ms,
                                                    Py[u:u+4,v:v+4]),
                                          MsT), (4, 4))
             ans[s0:sn, t0:tn, :] = patch(compx, compy, s, t)
-
 
 def patch(compx, compy, s, t):
     """
@@ -268,13 +275,13 @@ def patch(compx, compy, s, t):
 
     Returns
     -------
-    ans: TYPE 
+    ans: TYPE
         Description
 
     """
     s     = np.array(s, order="F")
     t     = np.array(t, order="F")
-    
+
     len_s = len(s)
     len_t = len(t)
     ans = np.zeros((len_s, len_t, 2), order="F")
@@ -283,10 +290,10 @@ def patch(compx, compy, s, t):
     ss = np.reshape(ss, (len_s, 4))
     tt = np.concatenate((t**3, t**2, t, t**0))
     tt = np.reshape(tt, (len_t, 4)).transpose()
-    
+
     ans[:, :, 0] = np.matmul(np.matmul(ss, compx), tt)
     ans[:, :, 1] = np.matmul(np.matmul(ss, compy), tt)
-    
+
     return ans
 
 def extend(r, d):
@@ -310,29 +317,29 @@ def extend(r, d):
         DESCRIPTION.
 
     """
-    
+
     dsz = d.shape
     ns  = dsz[0] + 6
     nt  = dsz[1] + 6
-    
+
     rd = np.zeros((ns, nt), order="F")
-    dif = r[1, 0] - r[0, 0]    
+    dif = r[1, 0] - r[0, 0]
     zro = r[0, 0] - 3*dif
     z   = np.arange(ns)*dif + zro
     for i in range(nt):
         rd[:, i] = z
-    
+
     sd = np.zeros((ns, nt), order="F")
     sd[3:ns-3, 3:nt-3] = d -r
-    
+
     x = sd[:, 3]
     sd[:, 0] = x
     sd[:, 1] = x
     sd[:, 2] = x
-    
+
     x = sd[: ,nt-4]
-    sd[:, nt-3] = x 
-    sd[:, nt-2] = x 
+    sd[:, nt-3] = x
+    sd[:, nt-2] = x
     sd[:, nt-1] = x
 
     sd = np.transpose(sd)
@@ -341,15 +348,15 @@ def extend(r, d):
     sd[:, 0] = x
     sd[:, 1] = x
     sd[:, 2] = x
-    
+
     x = sd[: ,ns-4]
-    sd[:, ns-3] = x 
-    sd[:, ns-2] = x 
+    sd[:, ns-3] = x
+    sd[:, ns-2] = x
     sd[:, ns-1] = x
 
     sd = np.transpose(sd)
     sd = sd + rd
-    
+
     return rd, sd
 
 
@@ -372,7 +379,7 @@ def mask(nx, ny):
 
     """
     m = np.ones((int(nx), int(ny)), order="F")
-    
+
     return m
 
 def smouth(nx, ny):
@@ -437,12 +444,12 @@ def doref(ref, mask, d_info):
     win: array (*, *)
         Reorganized window
     """
-    
+
     win = np.zeros((d_info.wx, d_info.wy, d_info.cpx, d_info.cpy),
                    dtype="complex", order="F")
     nelz = d_info.wx * d_info.wy
     ly = d_info.by
-    hy = ly + d_info.wy -1 
+    hy = ly + d_info.wy -1
     for j in range(0, d_info.cpy):
         lx = d_info.bx
         hx = lx + d_info.wx - 1
@@ -459,7 +466,7 @@ def doref(ref, mask, d_info):
         hy = hy + d_info.ky
 
     return win
-    
+
 def cploc(s, w, mask, smou, d_info):
     """
     Locate control points
@@ -482,43 +489,44 @@ def cploc(s, w, mask, smou, d_info):
     ans: TYPE
 
     """
-    
+
     ans = np.zeros((2, d_info.cpx, d_info.cpy), order="F")
-    
+
     nels = d_info.wx * d_info.wy
-    
+
     ly = d_info.by
     hy = ly + d_info.wy
     for j in range(0, d_info.cpy):
         lx = d_info.bx
         hx = lx + d_info.wx
-        
+
         for i in range(0, d_info.cpx):
 
             #cross correlation, inline
             ss = s[lx:hx, ly:hy]
 
             #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
-            ss_fft = np.fft.fft2(ss) * w[:, :, i, j] * smou
-            ss_ifft = np.abs(np.fft.ifft2(ss_fft))
-            cc = np.roll(ss_ifft, (d_info.wx//2, d_info.wy//2), 
+            ss_fft = np.array(np.fft.fft2(ss), order="F")
+            ss_fft = ss_fft  * w[:, :, i, j] * smou
+            ss_ifft = np.abs(np.fft.ifft2(ss_fft), order="F")
+            cc = np.roll(ss_ifft, (d_info.wx//2, d_info.wy//2),
                          axis=(0, 1))
 
             cc = np.array(cc, order="F")
             mx  = np.amax(cc)
             loc = cc.argmax()
-            
-        
+
+
             ccsz = cc.shape
             xmax = loc % ccsz[0]
             ymax = loc // ccsz[0]
 
             #a more complicated interpolation
             #(from Niblack, W: An Introduction to Digital Image Processing, p 139.)
-            
-            if ((xmax*ymax > 0) and (xmax < (ccsz[0]-1)) 
-                and (ymax < (ccsz[1]-1))):
-    
+
+            #if ((xmax*ymax > 0) and (xmax < (ccsz[0]-1))
+            #    and (ymax < (ccsz[1]-1))):
+            if (1 == 0):
                 denom = mx*2 - cc[xmax-1,ymax] - cc[xmax+1,ymax]
                 xfra = (xmax-.5) + (mx-cc[xmax-1,ymax])/denom
 
@@ -527,20 +535,20 @@ def cploc(s, w, mask, smou, d_info):
 
                 xmax=xfra
                 ymax=yfra
-            
+
 
             ans[0,i,j] = lx + xmax
             ans[1,i,j] = ly + ymax
-        
+
             lx = lx + d_info.kx
             hx = hx + d_info.kx
-        
+
         ly = ly + d_info.ky
         hy = hy + d_info.ky
-        
-        
+
+
     return ans
-    
+
 def val(scene, ref, kernel):
      # check parameters are reasonable
 
@@ -570,15 +578,15 @@ def val(scene, ref, kernel):
 
      if errflg > 0:
          print("quitting - too many errors")
-         
+
 def doreg(scene, r, d, d_info):
     """
-    
+
 
     Parameters
     ----------
     scene : TYPE
-        Scene to be destretched 
+        Scene to be destretched
     r : TYPE
         reference displacements of the control points
     d : TYPE
@@ -592,12 +600,46 @@ def doreg(scene, r, d, d_info):
         Destretched scene.
 
     """
-    
+
     xy  = bilin_control_points(scene, r, d)
     ans = bilin_values_scene(scene, xy, d_info)
-    
+
     return ans
-         
+
+def measure_destr_properties(scene1, scene2):
+    """
+    Measure the suitable parameters for the destretch based on the two provided
+    images based on:
+        1)Fourier transforms of the images to obtain the smallest
+    scale (box size) on the image;
+        2) Fourier transform of the image ratio (???) to measure the
+    control point spacing;
+
+    Input:
+        -- scene1 -- ndarray (nx, ny)
+            Image 1
+        -- scene 2 -- ndarray (nx, ny)
+            Image 2
+
+    Output:
+        -- d_info -- Destretch_class
+            Suggested properties of the destretch
+    """
+
+
+    return d_info
+
+def mkcps_nonuniform(ref, kernel):
+
+    return 0
+
+def mkcps_overlapping(ref, kernel, box_size):
+    """
+    Create control point locations in the reference with overlapping cross
+    correlation regions
+    """
+    return d_info, rcps
+
 def mkcps(ref, kernel):
     """
     Seems to work
@@ -614,7 +656,7 @@ def mkcps(ref, kernel):
     -------
     d_info: Destr class
         Destructor info
-    
+
     rcps : TYPE
         DESCRIPTION.
 
@@ -638,7 +680,7 @@ def mkcps(ref, kernel):
     rsz = ref.shape
     cpx = int((rsz[0] - wx + kx)//kx)
     cpy = int((rsz[1] - wy + ky)//ky)
-  
+
     bx = int(((rsz[0] - wx + kx) % kx)/2)
     by = int(((rsz[1] - wy + ky) % ky)/2)
     rcps = np.zeros((2, cpx, cpy), order="F")
@@ -652,21 +694,20 @@ def mkcps(ref, kernel):
             rcps[1, i, j] = (ly + hy)/2
             lx = lx + kx
             hx = hx + kx
-        
+
         ly = ly + ky
         hy = hy + ky
-    
-    d_info = Destretch_params(kx, ky, wx, wy, bx, by, cpx, cpy) 
-    
+
+    d_info = Destretch_params(kx, ky, wx, wy, bx, by, cpx, cpy)
+
     return d_info, rcps
-    
+
 def setup(scene, ref, kernel, d_info):
-    
+
     return
 
-
 def undo():
-    return 
+    return
 
 def repair(ref, disp, d_info):
     """
@@ -692,11 +733,11 @@ def repair(ref, disp, d_info):
     # TOOFAR = 1.5           # user may want to change this parameter
 
     sz = disp.shape
-    nx = sz[1] 
+    nx = sz[1]
     ny = sz[2]
 
     if (len(sz) == 4):
-        nf = sz[3] 
+        nf = sz[3]
     else:
         nf = 1
 
@@ -708,11 +749,11 @@ def repair(ref, disp, d_info):
     print(disp.shape)
 
     kps = np.reshape(disp[:, :, :], (2, nx, ny))
-    
+
     diff = kps - ref
 
     # list of bad coordinates in this frame
-    bad = np.where((diff[0, :, :]**2 + diff[1, :, :]**2) > limit, 
+    bad = np.where((diff[0, :, :]**2 + diff[1, :, :]**2) > limit,
                    1, 0)
     bad_count = np.sum(bad)
     i = 0
@@ -720,11 +761,11 @@ def repair(ref, disp, d_info):
     while i < bad_count or j < nx*ny:
         x = i % nx
         y = i // nx
-        
+
         if bad[x, y] == 1:
             good [:, x, y] = ref[:, x, y]
             i += 1
-        j += 1     
+        j += 1
     return good
 
 def cps(scene, ref, kernel):
@@ -749,14 +790,14 @@ def cps(scene, ref, kernel):
         displacement array [2, cpx, cpy, nf]
 
     """
-    
+
     d_info, rdisp = mkcps(ref, kernel)
 
 
-    mm=np.zeros((d_info.wx,d_info.wy), order="F")
+    mm = np.zeros((d_info.wx,d_info.wy), order="F")
     mm[:, :] = 1
 
-    smou=np.zeros((d_info.wx,d_info.wy), order="F")
+    smou = np.zeros((d_info.wx,d_info.wy), order="F")
     smou[:, :] = 1
 
 
@@ -772,12 +813,13 @@ def cps(scene, ref, kernel):
     # compute control point locations
     for frm in range(0, nf):
         ans[:, :, :, frm] = cploc(scene[:, :, :, frm], win, mm, smou, d_info)
-        ans[:, :, :, frm] = repair(rdisp, ans[:, :, :,frm], d_info)# optional repair
-    
+        #ans[:, :, :, frm] = repair(rdisp, ans[:, :, :,frm], d_info)# optional repair
+
     if ssz[2]:
         scene = np.reshape(scene, (ssz[0], ssz[1]))
         ans = np.reshape(ans, (2, d_info.cpx, d_info.cpy))
-    
+
+
     return ans
 
 def reg(scene, ref, kernel_size):
@@ -791,7 +833,7 @@ def reg(scene, ref, kernel_size):
         Scene to be registered
     ref : [nx, ny]
         reference frame
-    kernel_size : int 
+    kernel_size : int
        Kernel size (otherwise unused)!!!!!
 
     Returns
@@ -804,9 +846,9 @@ def reg(scene, ref, kernel_size):
         Reference control point locations
 
     """
-    
+
     kernel = np.zeros((kernel_size, kernel_size))
-    
+
     d_info, rdisp = mkcps(ref, kernel)
     mm = mask(d_info.wx, d_info.wy)
     smou = smouth(d_info.wx, d_info.wy)
@@ -823,18 +865,21 @@ def reg(scene, ref, kernel_size):
     #disp = repair(rdisp, disp, d_info) # optional repair
     #rms = sqrt(total((rdisp - disp)^2)/n_elements(rdisp))
     #print, 'rms =', rms
+    mdisp = np.mean(rdisp-disp,axis=(1, 2))
+    disp[0, :, :] += mdisp[0]
+    disp[1, :, :] += mdisp[1]
     x = doreg(scene, rdisp, disp, d_info)
     ans = x
         #    win = doref (x, mm); optional update of window
 
     undo()
 
-    
+
     return ans, disp, rdisp, d_info
 
 def reg_loop(scene, ref, kernel_sizes):
     """
-    
+
 
     Parameters
     ----------
@@ -842,39 +887,55 @@ def reg_loop(scene, ref, kernel_sizes):
         Image to be destretched
     ref : ndarray (nx, ny)
         Reference image
-    kernel_sizes : ndarray (n_kernels) 
-        Sizes of the consecutive kernels to be applied 
+    kernel_sizes : ndarray (n_kernels)
+        Sizes of the consecutive kernels to be applied
 
     Returns
     -------
     ans : ndarray (nx, ny)
         Destretched scene
-    d_info: Destretch class 
+    d_info: Destretch class
         Parameters of the destretching
     """
-    
-    
-    scene_temp = scene 
-    
+
+
+    scene_temp = scene
+
     for el in kernel_sizes:
         scene_temp, disp, rdisp, d_info = reg(scene_temp, ref, el)
-    
+
     ans = scene_temp
-    
+
     return ans, disp, rdisp, d_info
 
 def test_destretch(scene, ref, kernel_size):
-    
+
     ans1, disp, rdisp, d_info = reg_loop(scene, ref, kernel_size)
-    
+
+    pl.figure.set_dpi=250
     pl.imshow(scene, origin=0)
     pl.title("Original scene")
     pl.show()
-    
+
+    pl.figure.set_dpi=250
     pl.imshow(ans1, origin=0)
     pl.title("Destretched scene")
     pl.show()
-    
+
+    pl.figure.set_dpi=250
     pl.imshow(ref, origin=0)
     pl.title("Reference")
-    pl.show()    
+    pl.show()
+
+
+def test_rotation(scene, angle):
+    """
+        Test if the code can pick up a static rotation of an image
+    """
+
+
+
+def test_residual_diff():
+    """
+        Test if the code reduces the distortions between the two images
+    """

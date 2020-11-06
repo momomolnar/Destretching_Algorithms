@@ -8,7 +8,7 @@ Test cases for the destretching routine in destretch.py
 @author: molnarad
 """
 
-
+def test_rotation():
 
 
 if __name__=="__main__":
