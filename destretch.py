@@ -359,9 +359,6 @@ def extend(r, d):
 
     return rd, sd
 
-
-    return ans
-
 def mask(nx, ny):
     """
     Create a mask over the apertures
