@@ -15,6 +15,7 @@ from scipy import signal as signal
 from scipy.ndimage.interpolation import shift
 from scipy.interpolate import RectBivariateSpline
 import matplotlib.pyplot as pl
+from time import time
 
 class Destretch_params():
     """
@@ -68,21 +69,23 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
         y = np.array(xy[:, :, 1] + .5, order="F")
 
     else:
-
+        from time import time
+        start = time()
+      
         x = np.array(xy[0, :, :], order="F")
         y = np.array(xy[1, :, :], order="F")
 
         nx = s.shape[0]
         ny = s.shape[1]
 
-        for elx in range(nx):
-            for ely in range(ny):
-                if x[elx, ely] > (nx -1) or x[elx, ely] < 0:
-                    x[elx, ely] = nx - 2
-                if y[elx, ely] > (ny -1) or y[elx, ely] < 0:
-                    y[elx, ely] = ny - 2
-
-
+        y[0:20,  :] = 0
+        y[-20:, :] = 0
+        y[:, -20:] = 0
+        y[:, 0:20] = 0
+        x[0:20,  :] = 0
+        x[-20:, :] = 0
+        x[:, -20:] = 0
+        x[:, 0:20] = 0
 
         x0 = x.astype(int)
         x1 = (x+1).astype(int)
@@ -90,23 +93,24 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
         y1 = (y+1).astype(int)
 
 
-
-
         fx = x % 1.
         fy = y % 1.
 
         s  = np.array(s, order="F")
         ss = s.astype(float)
-        print(x0)
+        
+
         ss00 = ss[x0, y0]
         ss01 = ss[x0, y1]
         ssfx = (ss[x1, y0] - ss00) * fx
         ssfy = fy * (ss01 - ss00 + (ss[x1, y1] - ss01) * fx - ssfx)
         ans  = ss00 + ssfx + ssfy
 
+        
     return ans
 
-def bilin_control_points(scene, rdisp, disp):
+def bilin_control_points(scene, rdisp, disp,
+                         test=False):
     """
     Compute the coordinates of the pixels in the output images to be
     sampled from the input image (using Scipy.interpolate.RectBivariate).
@@ -138,15 +142,25 @@ def bilin_control_points(scene, rdisp, disp):
 
     #compute the displacements
 
+    xy_ref_coordinates1 = np.zeros((2, scene_nx, scene_ny), order="F")
     xy_ref_coordinates = np.zeros((2, scene_nx, scene_ny), order="F")
 
-    for elx in range(scene_nx):
-        for ely in range(scene_ny):
-            xy_ref_coordinates[0, elx, ely] = elx
-            xy_ref_coordinates[1, elx, ely] = ely
+
+
+    start = time()
+    xy_ref_coordinates[0, :, :] = [np.linspace(0, (scene_nx-1), 
+                                               num=scene_ny, dtype="int") 
+                                   for el in range(scene_nx)]
+    xy_ref_coordinates[1, :, :] = [np.zeros(scene_ny, dtype="int")+el 
+                                   for el in range(scene_nx)]
+    
+    xy_ref_coordinates = np.swapaxes(xy_ref_coordinates, 1, 2)
+    end = time()
+    print(f'It took {end - start} seconds!')
+
 
     dd = disp - rdisp
-    print(dd)
+
 
     interp_x = RectBivariateSpline(cp_x_coords, cp_y_coords, dd[0, :, :])
     interp_y = RectBivariateSpline(cp_x_coords, cp_y_coords, dd[1, :, :])
@@ -160,18 +174,17 @@ def bilin_control_points(scene, rdisp, disp):
                                          grid=True)
     xy_grid[0, :, :] = 1. *interp_y.__call__(x_coords_output, y_coords_output,
                                          grid=True)
+    if test == True:
+        im1 = pl.imshow(xy_grid[0, :, :])
+        pl.colorbar(im1)
+        pl.show()
 
-    im1 = pl.imshow(xy_grid[0, :, :])
-    pl.colorbar(im1)
-    pl.show()
-
-    im2 = pl.imshow(xy_grid[1, :, :])
-    pl.colorbar(im2)
-    pl.show()
+        im2 = pl.imshow(xy_grid[1, :, :])
+        pl.colorbar(im2)
+        pl.show()
 
     xy_grid += xy_ref_coordinates
-
-
+    
     return (xy_grid)
 
 def bspline(scene, r, dd, d_info):
@@ -743,7 +756,6 @@ def repair(ref, disp, d_info):
     limit = (np.amax([kkx,kky])*TOOFAR)**2
 
     good = disp + 0
-    print(disp.shape)
 
     kps = np.reshape(disp[:, :, :], (2, nx, ny))
 
@@ -862,9 +874,9 @@ def reg(scene, ref, kernel_size):
     #disp = repair(rdisp, disp, d_info) # optional repair
     #rms = sqrt(total((rdisp - disp)^2)/n_elements(rdisp))
     #print, 'rms =', rms
-    mdisp = np.mean(rdisp-disp,axis=(1, 2))
-    disp[0, :, :] += mdisp[0]
-    disp[1, :, :] += mdisp[1]
+    #mdisp = np.mean(rdisp-disp,axis=(1, 2))
+    #disp[0, :, :] += mdisp[0]
+    #disp[1, :, :] += mdisp[1]
     x = doreg(scene, rdisp, disp, d_info)
     ans = x
         #    win = doref (x, mm); optional update of window
@@ -905,25 +917,25 @@ def reg_loop(scene, ref, kernel_sizes):
 
     return ans, disp, rdisp, d_info
 
-def test_destretch(scene, ref, kernel_size):
+def test_destretch(scene, ref, kernel_size, plot=False):
 
     ans1, disp, rdisp, d_info = reg_loop(scene, ref, kernel_size)
+    if plot==True:
+        pl.figure(dpi=250)
+        pl.imshow(scene, origin=0)
+        pl.title("Original scene")
+        pl.show()
 
-    pl.figure.set_dpi=250
-    pl.imshow(scene, origin=0)
-    pl.title("Original scene")
-    pl.show()
+        pl.figure(dpi=250)
+        pl.imshow(ans1, origin=0)
+        pl.title("Destretched scene")
+        pl.show()
 
-    pl.figure.set_dpi=250
-    pl.imshow(ans1, origin=0)
-    pl.title("Destretched scene")
-    pl.show()
-
-    pl.figure.set_dpi=250
-    pl.imshow(ref, origin=0)
-    pl.title("Reference")
-    pl.show()
-
+        pl.figure(dpi=250)
+        pl.imshow(ref, origin=0)
+        pl.title("Reference")
+        pl.show()
+    
 
 def test_rotation(scene, angle):
     """
