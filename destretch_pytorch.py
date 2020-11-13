@@ -15,7 +15,9 @@ from scipy import signal as signal
 from scipy.ndimage.interpolation import shift
 from scipy.interpolate import RectBivariateSpline
 import matplotlib.pyplot as pl
+from time import time
 import torch as t
+import torch.fft as fft
 
 class Destretch_params():
     """
@@ -23,7 +25,7 @@ class Destretch_params():
 
     """
 
-    def __init__(self, kx, ky, wx, wy, bx, by, cpx, cpy):
+    def __init__(self, kx, ky, wx, wy, bx, by, cpx, cpy, device):
         self.kx = kx
         self.ky = ky
         self.wx = wx
@@ -32,6 +34,7 @@ class Destretch_params():
         self.by = by
         self.cpx = cpx
         self.cpy = cpy
+        self.device = device
 
     def print_props(self):
         print("[kx, ky, wx, wy, bx, by, cpx, cpy] are:")
@@ -69,45 +72,46 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
         y = np.array(xy[:, :, 1] + .5, order="F")
 
     else:
-
-        x = np.array(xy[0, :, :], order="F")
-        y = np.array(xy[1, :, :], order="F")
+        
+       
+      
+        x = xy[0, :, :]
+        y = xy[1, :, :]
 
         nx = s.shape[0]
         ny = s.shape[1]
 
-        for elx in range(nx):
-            for ely in range(ny):
-                if x[elx, ely] > (nx -1) or x[elx, ely] < 0:
-                    x[elx, ely] = nx - 2
-                if y[elx, ely] > (ny -1) or y[elx, ely] < 0:
-                    y[elx, ely] = ny - 2
+        y[0:20,  :] = 0
+        y[-20:, :] = 0
+        y[:, -20:] = 0
+        y[:, 0:20] = 0
+        x[0:20,  :] = 0
+        x[-20:, :] = 0
+        x[:, -20:] = 0
+        x[:, 0:20] = 0
 
-
-
-        x0 = x.astype(int)
-        x1 = (x+1).astype(int)
-        y0 = (y).astype(int)
-        y1 = (y+1).astype(int)
-
-
-
+        x0 = x.type(t.cuda.LongTensor).to(d_info.device)
+        x1 = (x+1).type(t.cuda.LongTensor).to(d_info.device) 
+        y0 = y.type(t.cuda.LongTensor).to(d_info.device)
+        y1 = (y+1).type(t.cuda.LongTensor).to(d_info.device) 
 
         fx = x % 1.
         fy = y % 1.
 
-        s  = np.array(s, order="F")
-        ss = s.astype(float)
-        print(x0)
+        ss  = s.type(t.cuda.HalfTensor).to(device=d_info.device)  
+        
+
         ss00 = ss[x0, y0]
         ss01 = ss[x0, y1]
         ssfx = (ss[x1, y0] - ss00) * fx
         ssfy = fy * (ss01 - ss00 + (ss[x1, y1] - ss01) * fx - ssfx)
         ans  = ss00 + ssfx + ssfy
 
+        
     return ans
 
-def bilin_control_points_pt(scene, rdisp, disp):
+def bilin_control_points(scene, rdisp, disp, d_info,
+                         test=False):
     """
     Compute the coordinates of the pixels in the output images to be
     sampled from the input image (using Scipy.interpolate.RectBivariate).
@@ -138,21 +142,35 @@ def bilin_control_points_pt(scene, rdisp, disp):
     cp_y_coords = rdisp[1, 0, :]
 
     #compute the displacements
+ 
+    xy_ref_coordinates = np.zeros((2, scene_nx, scene_ny), order="F")
 
-    xy_ref_coordinates = t.zeros(2, scene_nx, scene_ny)
 
-    for elx in range(scene_nx):
-        for ely in range(scene_ny):
-            xy_ref_coordinates[0, elx, ely] = elx
-            xy_ref_coordinates[1, elx, ely] = ely
+
+    
+    xy_ref_coordinates[0, :, :] = [np.linspace(0, (scene_nx-1), 
+                                               num=scene_ny, dtype="int") 
+                                   for el in range(scene_nx)]
+    xy_ref_coordinates[1, :, :] = [np.zeros(scene_ny, dtype="int")+el 
+                                   for el in range(scene_nx)]
+    
+    xy_ref_coordinates = np.swapaxes(xy_ref_coordinates, 1, 2)
+   
+  
+    xy_ref_coordinates = t.tensor(xy_ref_coordinates, 
+                                  device=d_info.device)
 
     dd = disp - rdisp
-    print(dd)
 
+    cp_x_coords = cp_x_coords.clone().detach().to("cpu")
+    cp_y_coords = cp_y_coords.clone().detach().to("cpu")
+    
+    dd = dd.clone().detach().to("cpu")
+ 
     interp_x = RectBivariateSpline(cp_x_coords, cp_y_coords, dd[0, :, :])
     interp_y = RectBivariateSpline(cp_x_coords, cp_y_coords, dd[1, :, :])
 
-    xy_grid = t.zeros((2, scene_nx, scene_ny))
+    xy_grid = np.zeros((2, scene_nx, scene_ny))
 
     x_coords_output = np.linspace(0, scene_nx-1, num=scene_nx)
     y_coords_output = np.linspace(0, scene_ny-1, num=scene_ny)
@@ -161,18 +179,18 @@ def bilin_control_points_pt(scene, rdisp, disp):
                                          grid=True)
     xy_grid[0, :, :] = 1. *interp_y.__call__(x_coords_output, y_coords_output,
                                          grid=True)
+    if test == True:
+        im1 = pl.imshow(xy_grid[0, :, :])
+        pl.colorbar(im1)
+        pl.show()
 
-    im1 = pl.imshow(xy_grid[0, :, :])
-    pl.colorbar(im1)
-    pl.show()
+        im2 = pl.imshow(xy_grid[1, :, :])
+        pl.colorbar(im2)
+        pl.show()
 
-    im2 = pl.imshow(xy_grid[1, :, :])
-    pl.colorbar(im2)
-    pl.show()
-
+    xy_grid = t.tensor(xy_grid, device=d_info.device) 
     xy_grid += xy_ref_coordinates
-
-
+ 
     return (xy_grid)
 
 def bspline(scene, r, dd, d_info):
@@ -360,7 +378,7 @@ def extend(r, d):
 
     return rd, sd
 
-def mask(nx, ny):
+def mask(nx, ny, device):
     """
     Create a mask over the apertures
 
@@ -370,13 +388,14 @@ def mask(nx, ny):
         DESCRIPTION.
     ny : TYPE
         DESCRIPTION.
-
+    device: PyTorch Object
+        Tells you if you should use the CPU or GPU
     Returns
     -------
     None.
 
     """
-    m = np.ones((int(nx), int(ny)), order="F")
+    m = t.ones((int(nx), int(ny)), device=device)
 
     return m
 
@@ -427,7 +446,7 @@ def smouth(nx, ny):
 def doref(ref, mask, d_info):
     """
     Setup reference window
-
+    And load it to the gpu
     Parameters
     ----------
     ref : array (*, *)
@@ -443,8 +462,9 @@ def doref(ref, mask, d_info):
         Reorganized window
     """
 
-    win = np.zeros((d_info.wx, d_info.wy, d_info.cpx, d_info.cpy),
-                   dtype="complex", order="F")
+    win1 = t.zeros(d_info.wx, d_info.wy, d_info.cpx, d_info.cpy)
+    win = t.complex(win1, win1)
+    win = win.to(d_info.device)
     nelz = d_info.wx * d_info.wy
     ly = d_info.by
     hy = ly + d_info.wy -1
@@ -453,9 +473,9 @@ def doref(ref, mask, d_info):
         hx = lx + d_info.wx - 1
         for i in range(0, d_info.cpx):
             z = ref[lx:hx+1, ly:hy+1]
-            z = z - np.sum(z)/nelz
+            z = z - t.sum(z)/nelz
             #z=z-np.polyfit(z[0,  :], z[1:, ],1)
-            win[:, :, i, j] = np.conj(np.fft.fft2(z*mask))
+            win[:, :, i, j] = t.conj(t.fft.fftn(z*mask))
 
             lx = lx + d_info.kx
             hx = hx + d_info.kx
@@ -486,64 +506,58 @@ def cploc(s, w, mask, smou, d_info):
     -------
     ans: TYPE
 
-    """
+    """ 
+         
+    nx_s = s.shape[0]
+    ny_s = s.shape[0]
+    ans = t.zeros((2, d_info.cpx, d_info.cpy), device=d_info.device)
+    
+   # s_reshape = t.reshape(s, (d_info.cpx, d_info.cpy, 
+   #                          d_info.kx, d_info.ky))     
 
-    ans = np.zeros((2, d_info.cpx, d_info.cpy), order="F")
+    s_vector = t.zeros((d_info.cpx, d_info.cpy, 
+                        d_info.kx, d_info.ky), device=d_info.device)
 
+    for ii in range(d_info.cpx):
+        for jj in range(d_info.cpy):
+            s_vector[ii, jj, :, :] = s[(ii*d_info.kx 
+                                       ):((ii+1)*d_info.kx),
+                                       (ii*d_info.ky):((ii+1)*d_info.ky)]
     nels = d_info.wx * d_info.wy
+    w = w.permute(2, 3, 0, 1)    
 
-    ly = d_info.by
-    hy = ly + d_info.wy
-    for j in range(0, d_info.cpy):
-        lx = d_info.bx
-        hx = lx + d_info.wx
+    s_fft = fft.fftn(s, s=2)
+    ss_fft = s_fft * w 
+    ss_ifft = t.abs(fft.ifft(ss_fft, s=2))
+    cc = t.roll(ss_ifft, (d_info.wx//2, d_info.wy//2), (2, 3)) 
 
-        for i in range(0, d_info.cpx):
+            
+    mx  = t.max(t.max(cc, dim=3), dim=2)
+    loc = t.empty((d_info.cpx, d_info.cpy), device=d_info.device)   
+   
+    ccsz = cc.shape
+    xmax1 = loc % ccsz[0]
+    ymax1 = loc // ccsz[0]
 
-            #cross correlation, inline
-            ss = s[lx:hx, ly:hy]
+    #a more complicated interpolation
+    #(from Niblack, W: An Introduction to Digital Image Processing, p 139.)
 
-            #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
-            ss_fft = np.array(np.fft.fft2(ss), order="F")
-            ss_fft = ss_fft  * w[:, :, i, j] * smou
-            ss_ifft = np.abs(np.fft.ifft2(ss_fft), order="F")
-            cc = np.roll(ss_ifft, (d_info.wx//2, d_info.wy//2),
-                         axis=(0, 1))
+    #if ((xmax*ymax > 0) and (xmax < (ccsz[0]-1))
+    #    and (ymax < (ccsz[1]-1))):
+    if (1 == 0):
+        denom = mx*2 - cc[xmax-1,ymax] - cc[xmax+1,ymax]
+        xfra = (xmax-.5) + (mx-cc[xmax-1,ymax])/denom
+        denom = mx*2 - cc[xmax,ymax-1] - cc[xmax,ymax+1]
+        yfra = (ymax-.5) + (mx-cc[xmax,ymax-1])/denom
 
-            cc = np.array(cc, order="F")
-            mx  = np.amax(cc)
-            loc = cc.argmax()
+        xmax1=xfra
+        ymax1=yfra
 
+    xmax = xmax1.to("cpu") 
+    ymax = ymax1.to("cpu")
 
-            ccsz = cc.shape
-            xmax = loc % ccsz[0]
-            ymax = loc // ccsz[0]
-
-            #a more complicated interpolation
-            #(from Niblack, W: An Introduction to Digital Image Processing, p 139.)
-
-            #if ((xmax*ymax > 0) and (xmax < (ccsz[0]-1))
-            #    and (ymax < (ccsz[1]-1))):
-            if (1 == 0):
-                denom = mx*2 - cc[xmax-1,ymax] - cc[xmax+1,ymax]
-                xfra = (xmax-.5) + (mx-cc[xmax-1,ymax])/denom
-
-                denom = mx*2 - cc[xmax,ymax-1] - cc[xmax,ymax+1]
-                yfra = (ymax-.5) + (mx-cc[xmax,ymax-1])/denom
-
-                xmax=xfra
-                ymax=yfra
-
-
-            ans[0,i,j] = lx + xmax
-            ans[1,i,j] = ly + ymax
-
-            lx = lx + d_info.kx
-            hx = hx + d_info.kx
-
-        ly = ly + d_info.ky
-        hy = hy + d_info.ky
-
+    ans[0,i,j] = lx + xmax
+    ans[1,i,j] = ly + ymax
 
     return ans
 
@@ -599,7 +613,7 @@ def doreg(scene, r, d, d_info):
 
     """
 
-    xy  = bilin_control_points(scene, r, d)
+    xy  = bilin_control_points(scene, r, d, d_info)
     ans = bilin_values_scene(scene, xy, d_info)
 
     return ans
@@ -638,7 +652,7 @@ def mkcps_overlapping(ref, kernel, box_size):
     """
     return d_info, rcps
 
-def mkcps(ref, kernel):
+def mkcps(ref, kernel, device="cpu"):
     """
     Seems to work
     Choose control point locations in the reference
@@ -649,7 +663,8 @@ def mkcps(ref, kernel):
         Reference scene
     kernel : TYPE
         Kernel props
-
+    device: PyTorch device object
+        Tells you if you're using the cpu or the gpu
     Returns
     -------
     d_info: Destr class
@@ -681,7 +696,7 @@ def mkcps(ref, kernel):
 
     bx = int(((rsz[0] - wx + kx) % kx)/2)
     by = int(((rsz[1] - wy + ky) % ky)/2)
-    rcps = np.zeros((2, cpx, cpy), order="F")
+    rcps = t.zeros((2, cpx, cpy), device=device)
     ly = by
     hy = ly + wy
     for j in range(0, cpy):
@@ -696,7 +711,8 @@ def mkcps(ref, kernel):
         ly = ly + ky
         hy = hy + ky
 
-    d_info = Destretch_params(kx, ky, wx, wy, bx, by, cpx, cpy)
+    d_info = Destretch_params(kx, ky, wx, wy, bx, by, cpx, cpy,
+                              device)
 
     return d_info, rcps
 
@@ -744,7 +760,6 @@ def repair(ref, disp, d_info):
     limit = (np.amax([kkx,kky])*TOOFAR)**2
 
     good = disp + 0
-    print(disp.shape)
 
     kps = np.reshape(disp[:, :, :], (2, nx, ny))
 
@@ -820,7 +835,7 @@ def cps(scene, ref, kernel):
 
     return ans
 
-def reg(scene, ref, kernel_size):
+def reg(scene, ref, kernel_size, device=False):
     """
     Register scenes with respect to ref using kernel size and
     then returns the destretched scene.
@@ -845,37 +860,47 @@ def reg(scene, ref, kernel_size):
 
     """
 
-    kernel = np.zeros((kernel_size, kernel_size))
+    kernel = t.zeros((kernel_size, kernel_size), device=device)
+    
+    
+    d_info, rdisp = mkcps(ref, kernel, device)
 
-    d_info, rdisp = mkcps(ref, kernel)
-    mm = mask(d_info.wx, d_info.wy)
+    mm = mask(d_info.wx, d_info.wy, device)
+    mm = mm.clone().detach().to(device)
+  
     smou = smouth(d_info.wx, d_info.wy)
+    smou = t.tensor(smou, device=device) 
 
     #Condition the ref
-    win = doref(ref, mm, d_info)
-
+    win = doref(ref, mm, d_info) 
+    win = win.clone().detach().to(device)
     ssz = scene.shape
+    
     ans = np.zeros((ssz[0], ssz[1]), order="F")
 
     # compute control point locations
 
+    start = time()
     disp = cploc(scene, win, mm, smou, d_info)
+    end = time()
     #disp = repair(rdisp, disp, d_info) # optional repair
     #rms = sqrt(total((rdisp - disp)^2)/n_elements(rdisp))
     #print, 'rms =', rms
-    mdisp = np.mean(rdisp-disp,axis=(1, 2))
-    disp[0, :, :] += mdisp[0]
-    disp[1, :, :] += mdisp[1]
+    #mdisp = np.mean(rdisp-disp,axis=(1, 2))
+    #disp[0, :, :] += mdisp[0]
+    #disp[1, :, :] += mdisp[1]
+
     x = doreg(scene, rdisp, disp, d_info)
+
     ans = x
-        #    win = doref (x, mm); optional update of window
+        #    win = doref (x, mm); optional update of window 
 
-    undo()
-
+    
+    print(f"Total destr took: {end - start} seconds.")
 
     return ans, disp, rdisp, d_info
 
-def reg_loop(scene, ref, kernel_sizes):
+def reg_loop(scene, ref, kernel_sizes, device="False"):
     """
 
 
@@ -887,7 +912,9 @@ def reg_loop(scene, ref, kernel_sizes):
         Reference image
     kernel_sizes : ndarray (n_kernels)
         Sizes of the consecutive kernels to be applied
-
+    device: string
+        == "CPU" for using the cpu 
+        else will try to use the GPU
     Returns
     -------
     ans : ndarray (nx, ny)
@@ -895,36 +922,54 @@ def reg_loop(scene, ref, kernel_sizes):
     d_info: Destretch class
         Parameters of the destretching
     """
+   
+    start = time() 
+    if t.cuda.is_available():  
+        dev = "cuda:0" 
+        t.backends.cudnn.benchmark = True
+    else:  
+        dev = "cpu" 
+ 
+    
+    if device == "CPU":
+        device = t.device("cpu") 
+    else: 
+        device = t.device(dev) 
 
-
-    scene_temp = scene
+    scene = t.tensor(scene, device=device)
+    ref   = t.tensor(ref, device=device)
 
     for el in kernel_sizes:
-        scene_temp, disp, rdisp, d_info = reg(scene_temp, ref, el)
+        scene, disp, rdisp, d_info = reg(scene, ref, el, 
+                                         device=device)
 
-    ans = scene_temp
+    ans = scene.to("cpu")
+
+    end = time()
+    print(f"Total destr took: {end - start} seconds.")
 
     return ans, disp, rdisp, d_info
 
-def test_destretch(scene, ref, kernel_size):
+def test_destretch(scene, ref, kernel_size, plot=False, device=False):
 
-    ans1, disp, rdisp, d_info = reg_loop(scene, ref, kernel_size)
+    ans1, disp, rdisp, d_info = reg_loop(scene, ref, kernel_size, 
+                                         device=device)
+    if plot==True:
+        pl.figure(dpi=250)
+        pl.imshow(scene, origin=0)
+        pl.title("Original scene")
+        pl.show()
 
-    pl.figure.set_dpi=250
-    pl.imshow(scene, origin=0)
-    pl.title("Original scene")
-    pl.show()
+        pl.figure(dpi=250)
+        pl.imshow(ans1, origin=0)
+        pl.title("Destretched scene")
+        pl.show()
 
-    pl.figure.set_dpi=250
-    pl.imshow(ans1, origin=0)
-    pl.title("Destretched scene")
-    pl.show()
-
-    pl.figure.set_dpi=250
-    pl.imshow(ref, origin=0)
-    pl.title("Reference")
-    pl.show()
-
+        pl.figure(dpi=250)
+        pl.imshow(ref, origin=0)
+        pl.title("Reference")
+        pl.show()
+    
 
 def test_rotation(scene, angle):
     """

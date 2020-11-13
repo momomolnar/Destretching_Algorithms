@@ -69,8 +69,6 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
         y = np.array(xy[:, :, 1] + .5, order="F")
 
     else:
-        from time import time
-        start = time()
       
         x = np.array(xy[0, :, :], order="F")
         y = np.array(xy[1, :, :], order="F")
@@ -147,7 +145,7 @@ def bilin_control_points(scene, rdisp, disp,
 
 
 
-    start = time()
+    
     xy_ref_coordinates[0, :, :] = [np.linspace(0, (scene_nx-1), 
                                                num=scene_ny, dtype="int") 
                                    for el in range(scene_nx)]
@@ -155,8 +153,8 @@ def bilin_control_points(scene, rdisp, disp,
                                    for el in range(scene_nx)]
     
     xy_ref_coordinates = np.swapaxes(xy_ref_coordinates, 1, 2)
-    end = time()
-    print(f'It took {end - start} seconds!')
+   
+  
 
 
     dd = disp - rdisp
@@ -499,7 +497,7 @@ def cploc(s, w, mask, smou, d_info):
     ans: TYPE
 
     """
-
+   
     ans = np.zeros((2, d_info.cpx, d_info.cpy), order="F")
 
     nels = d_info.wx * d_info.wy
@@ -855,7 +853,6 @@ def reg(scene, ref, kernel_size):
         Reference control point locations
 
     """
-
     kernel = np.zeros((kernel_size, kernel_size))
 
     d_info, rdisp = mkcps(ref, kernel)
@@ -870,7 +867,9 @@ def reg(scene, ref, kernel_size):
 
     # compute control point locations
 
+    start = time()
     disp = cploc(scene, win, mm, smou, d_info)
+    end = time()
     #disp = repair(rdisp, disp, d_info) # optional repair
     #rms = sqrt(total((rdisp - disp)^2)/n_elements(rdisp))
     #print, 'rms =', rms
@@ -881,9 +880,9 @@ def reg(scene, ref, kernel_size):
     ans = x
         #    win = doref (x, mm); optional update of window
 
-    undo()
+   
 
-
+    print(f"Elapsed time for reg: {end - start}")
     return ans, disp, rdisp, d_info
 
 def reg_loop(scene, ref, kernel_sizes):
@@ -909,10 +908,12 @@ def reg_loop(scene, ref, kernel_sizes):
 
 
     scene_temp = scene
-
+    start = time()
     for el in kernel_sizes:
         scene_temp, disp, rdisp, d_info = reg(scene_temp, ref, el)
 
+    end = time()
+    print(f"Total elapsed time {end - start} seconds.")
     ans = scene_temp
 
     return ans, disp, rdisp, d_info

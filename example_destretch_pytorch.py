@@ -7,7 +7,7 @@ Created on Tue Nov  3 21:23:57 2020
 """
 from astropy.io import fits
 
-from destretch import *
+from destretch_pytorch import *
 
 
 Hdu = fits.open("test/test.fits")
@@ -18,6 +18,6 @@ scene = test_data[4, :, :]
 reference = test_data[10, :, :]
 kernel_sizes = [100, 64, 32]
 
-scene = np.random.random((10000, 10000))
+scene = np.random.random((1000, 1000))
 
-test_destretch(scene, scene, kernel_sizes, plot=False)
+test_destretch(scene, scene, kernel_sizes, plot=True)
