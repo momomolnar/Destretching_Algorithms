@@ -882,7 +882,9 @@ def reg(scene, ref, kernel_size):
 
    
 
-    print(f"Elapsed time for reg: {end - start}")
+    print(f"Total destr took: {end - start} seconds for kernel"
+          +f"of size {kernel_size} px.")
+    
     return ans, disp, rdisp, d_info
 
 def reg_loop(scene, ref, kernel_sizes):
@@ -919,7 +921,7 @@ def reg_loop(scene, ref, kernel_sizes):
     return ans, disp, rdisp, d_info
 
 def test_destretch(scene, ref, kernel_size, plot=False):
-
+    start = time()
     ans1, disp, rdisp, d_info = reg_loop(scene, ref, kernel_size)
     if plot==True:
         pl.figure(dpi=250)
@@ -936,7 +938,8 @@ def test_destretch(scene, ref, kernel_size, plot=False):
         pl.imshow(ref, origin=0)
         pl.title("Reference")
         pl.show()
-    
+    end = time()
+    print(f"Total elapsed time for test_function is {end-start}.")
 
 def test_rotation(scene, angle):
     """

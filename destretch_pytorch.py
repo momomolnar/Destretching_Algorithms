@@ -73,38 +73,28 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
 
     else:
         
-       
-      
-        x = xy[0, :, :]
-        y = xy[1, :, :]
+        dtype_long = t.cuda.LongTensor
+        dtype = t.cuda.FloatTensor
 
-        nx = s.shape[0]
-        ny = s.shape[1]
-
-        y[0:20,  :] = 0
-        y[-20:, :] = 0
-        y[:, -20:] = 0
-        y[:, 0:20] = 0
-        x[0:20,  :] = 0
-        x[-20:, :] = 0
-        x[:, -20:] = 0
-        x[:, 0:20] = 0
-
-        x0 = x.type(t.cuda.LongTensor).to(d_info.device)
-        x1 = (x+1).type(t.cuda.LongTensor).to(d_info.device) 
-        y0 = y.type(t.cuda.LongTensor).to(d_info.device)
-        y1 = (y+1).type(t.cuda.LongTensor).to(d_info.device) 
-
-        fx = x % 1.
-        fy = y % 1.
-
-        ss  = s.type(t.cuda.HalfTensor).to(device=d_info.device)  
+        x0 = t.floor(xy[0, :, :]).type(dtype_long)
+        x1 = x0 + 1        
         
+        y0 = t.floor(xy[1, :, :]).type(dtype_long)
+        y1 = y0 + 1 
+       
+        x0 = t.clamp(x0, 0, s.shape[1]-1)
+        x1 = t.clamp(x1, 0, s.shape[1]-1)
+        y0 = t.clamp(y0, 0, s.shape[0]-1)
+        y1 = t.clamp(y1, 0, s.shape[0]-1)
+     
+        fx = xy[0, 0, 0] % 1
+        fy = xy[0, 1, 0] % 1 
 
-        ss00 = ss[x0, y0]
-        ss01 = ss[x0, y1]
-        ssfx = (ss[x1, y0] - ss00) * fx
-        ssfy = fy * (ss01 - ss00 + (ss[x1, y1] - ss01) * fx - ssfx)
+        print(s, x0.shape)
+        ss00 = s[x0, y0]
+        ss01 = s[x0, y1]
+        ssfx = (s[x1, y0] - ss00) * fx
+        ssfy = fy * (ss01 - ss00 + (s[x1, y1] - ss01) * fx - ssfx)
         ans  = ss00 + ssfx + ssfy
 
         
@@ -461,7 +451,9 @@ def doref(ref, mask, d_info):
     win: array (*, *)
         Reorganized window
     """
-
+   
+    z = t.zeros((d_info.cpx, d_info.cpy, d_info.wx, d_info.wy,), 
+                device=d_info.device)
     win1 = t.zeros(d_info.wx, d_info.wy, d_info.cpx, d_info.cpy)
     win = t.complex(win1, win1)
     win = win.to(d_info.device)
@@ -472,16 +464,17 @@ def doref(ref, mask, d_info):
         lx = d_info.bx
         hx = lx + d_info.wx - 1
         for i in range(0, d_info.cpx):
-            z = ref[lx:hx+1, ly:hy+1]
-            z = z - t.sum(z)/nelz
+            z[i, j, :, :] = ref[lx:hx+1, ly:hy+1]
             #z=z-np.polyfit(z[0,  :], z[1:, ],1)
-            win[:, :, i, j] = t.conj(t.fft.fftn(z*mask))
-
             lx = lx + d_info.kx
             hx = hx + d_info.kx
-
         ly = ly + d_info.ky
         hy = hy + d_info.ky
+
+    z = z - t.sum(z, dim=(0, 1))/nelz 
+    z = z * mask
+    win = t.conj(t.fft.fftn(z, dim=(2, 3)))
+    
 
     return win
 
@@ -516,23 +509,31 @@ def cploc(s, w, mask, smou, d_info):
    #                          d_info.kx, d_info.ky))     
 
     s_vector = t.zeros((d_info.cpx, d_info.cpy, 
-                        d_info.kx, d_info.ky), device=d_info.device)
+                        d_info.wx, d_info.wy), device=d_info.device)
 
-    for ii in range(d_info.cpx):
-        for jj in range(d_info.cpy):
-            s_vector[ii, jj, :, :] = s[(ii*d_info.kx 
-                                       ):((ii+1)*d_info.kx),
-                                       (ii*d_info.ky):((ii+1)*d_info.ky)]
-    nels = d_info.wx * d_info.wy
-    w = w.permute(2, 3, 0, 1)    
+    nelz = d_info.wx * d_info.wy
+    ly = d_info.by
+    hy = ly + d_info.wy -1
+    for j in range(0, d_info.cpy):
+        lx = d_info.bx
+        hx = lx + d_info.wx - 1
+        for i in range(0, d_info.cpx):
+            s_vector[i, j, :, :] = s[lx:hx+1, ly:hy+1]
+            #z=z-np.polyfit(z[0,  :], z[1:, ],1)
+            lx = lx + d_info.kx
+            hx = hx + d_info.kx
+        ly = ly + d_info.ky
+        hy = hy + d_info.ky
+    
 
-    s_fft = fft.fftn(s, s=2)
-    ss_fft = s_fft * w 
-    ss_ifft = t.abs(fft.ifft(ss_fft, s=2))
-    cc = t.roll(ss_ifft, (d_info.wx//2, d_info.wy//2), (2, 3)) 
+    s_fft = fft.fftn(s_vector, dim=(2, 3))
+    ss_fft = s_fft * w * smou
+    ss_ifft = t.abs(t.fft.ifftn(ss_fft, dim=(2, 3)))
+    print(ss_ifft.shape)
+    cc = t.roll(ss_ifft, (d_info.wx//2, d_info.wy//2), dims=(2, 3)) 
 
             
-    mx  = t.max(t.max(cc, dim=3), dim=2)
+    mx  = t.amax(cc, dim=(2, 3))
     loc = t.empty((d_info.cpx, d_info.cpy), device=d_info.device)   
    
     ccsz = cc.shape
@@ -556,8 +557,8 @@ def cploc(s, w, mask, smou, d_info):
     xmax = xmax1.to("cpu") 
     ymax = ymax1.to("cpu")
 
-    ans[0,i,j] = lx + xmax
-    ans[1,i,j] = ly + ymax
+    ans[0,:, :] = d_info.wx + xmax
+    ans[1,:, :] = d_info.wy + ymax
 
     return ans
 
@@ -896,7 +897,8 @@ def reg(scene, ref, kernel_size, device=False):
         #    win = doref (x, mm); optional update of window 
 
     
-    print(f"Total destr took: {end - start} seconds.")
+    print(f"Total destr took: {end - start} seconds for kernel"
+          +f"of size {kernel_size} px.")
 
     return ans, disp, rdisp, d_info
 
@@ -923,7 +925,7 @@ def reg_loop(scene, ref, kernel_sizes, device="False"):
         Parameters of the destretching
     """
    
-    start = time() 
+   
     if t.cuda.is_available():  
         dev = "cuda:0" 
         t.backends.cudnn.benchmark = True
@@ -943,14 +945,16 @@ def reg_loop(scene, ref, kernel_sizes, device="False"):
         scene, disp, rdisp, d_info = reg(scene, ref, el, 
                                          device=device)
 
+   
     ans = scene.to("cpu")
-
-    end = time()
-    print(f"Total destr took: {end - start} seconds.")
+    
+    
 
     return ans, disp, rdisp, d_info
 
 def test_destretch(scene, ref, kernel_size, plot=False, device=False):
+
+    start = time() 
 
     ans1, disp, rdisp, d_info = reg_loop(scene, ref, kernel_size, 
                                          device=device)
@@ -969,6 +973,8 @@ def test_destretch(scene, ref, kernel_size, plot=False, device=False):
         pl.imshow(ref, origin=0)
         pl.title("Reference")
         pl.show()
+    end = time()
+    print(f"Total elapsed time for test_function is {end-start}.")
     
 
 def test_rotation(scene, angle):

@@ -18,6 +18,6 @@ scene = test_data[4, :, :]
 reference = test_data[10, :, :]
 kernel_sizes = [100, 64, 32]
 
-scene = np.random.random((1000, 1000))
+scene = np.random.random((8000, 8000))
 
-test_destretch(scene, scene, kernel_sizes, plot=True)
+test_destretch(scene, scene, kernel_sizes, plot=False, device="CPU")
