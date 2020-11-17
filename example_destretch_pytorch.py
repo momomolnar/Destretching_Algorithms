@@ -14,10 +14,8 @@ Hdu = fits.open("test/test.fits")
 
 test_data = Hdu[0].data
 
-scene = test_data[4, :, :]
-reference = test_data[10, :, :]
+scene = np.array(test_data[4, :, :]).astype(np.float32)
+reference = np.array(test_data[10, :, :]).astype(np.float32)
 kernel_sizes = [100, 64, 32]
 
-scene = np.random.random((8000, 8000))
-
-test_destretch(scene, scene, kernel_sizes, plot=False, device="CPU")
+test_destretch(scene, scene, kernel_sizes, plot=True, device="CPU")
