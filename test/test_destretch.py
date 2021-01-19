@@ -8,7 +8,14 @@ Test cases for the destretching routine in destretch.py
 @author: molnarad
 """
 
+from ../destretch.py import *
+from ../destretch_pytorch.py import *
+
+
+
 def test_rotation():
+    assert (True == True)
+
 
 
 if __name__=="__main__":

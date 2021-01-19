@@ -17,7 +17,6 @@ test_data = Hdu[0].data
 scene = test_data[4, :, :]
 reference = test_data[10, :, :]
 kernel_sizes = [100, 64, 32]
-
-scene = np.random.random((8000, 8000))
-
-test_destretch(scene, scene, kernel_sizes, plot=False)
+scene = np.random.random((6000, 6000))
+reference = np.random.random((6000, 6000))
+test_destretch(scene, reference, kernel_sizes, plot=False)

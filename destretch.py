@@ -39,7 +39,20 @@ class Destretch_params():
               self.cpx, self.cpy)
 
 def plot_cps(ax_object, d_info):
+    """
+    Plot the control points for the destretching on the destretched 
+    image
 
+    Parameters
+    ----------
+    ax_object : matplotlib ax object
+        Axis object to have the control points plotted on;
+    d_info : class Destretch_params
+        Destretch Parameters;
+    
+    Returns
+    ------- 
+    """
     return 0
 
 def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
@@ -76,14 +89,8 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
         nx = s.shape[0]
         ny = s.shape[1]
 
-        y[0:20,  :] = 0
-        y[-20:, :] = 0
-        y[:, -20:] = 0
-        y[:, 0:20] = 0
-        x[0:20,  :] = 0
-        x[-20:, :] = 0
-        x[:, -20:] = 0
-        x[:, 0:20] = 0
+        x = np.clip(x, 0, x.shape[0]-2)
+        y = np.clip(y, 0, y.shape[1]-2)
 
         x0 = x.astype(int)
         x1 = (x+1).astype(int)
@@ -466,12 +473,12 @@ def doref(ref, mask, d_info):
             z = z - np.sum(z)/nelz
             #z=z-np.polyfit(z[0,  :], z[1:, ],1)
             win[:, :, i, j] = np.conj(np.fft.fft2(z*mask))
-
+            
             lx = lx + d_info.kx
             hx = hx + d_info.kx
-
         ly = ly + d_info.ky
         hy = hy + d_info.ky
+
 
     return win
 
@@ -484,7 +491,7 @@ def cploc(s, w, mask, smou, d_info):
     s : TYPE
         Scene to be registered
     w : TYPE
-        Reference image from doref
+        Reference image (window) from doref
     mask : TYPE
         DESCRIPTION.
     smou : TYPE
@@ -516,10 +523,11 @@ def cploc(s, w, mask, smou, d_info):
             #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
             ss_fft = np.array(np.fft.fft2(ss), order="F")
             ss_fft = ss_fft  * w[:, :, i, j] * smou
+           
             ss_ifft = np.abs(np.fft.ifft2(ss_fft), order="F")
             cc = np.roll(ss_ifft, (d_info.wx//2, d_info.wy//2),
                          axis=(0, 1))
-
+            
             cc = np.array(cc, order="F")
             mx  = np.amax(cc)
             loc = cc.argmax()
@@ -858,18 +866,19 @@ def reg(scene, ref, kernel_size):
     d_info, rdisp = mkcps(ref, kernel)
     mm = mask(d_info.wx, d_info.wy)
     smou = smouth(d_info.wx, d_info.wy)
-
     #Condition the ref
     win = doref(ref, mm, d_info)
 
+    
     ssz = scene.shape
     ans = np.zeros((ssz[0], ssz[1]), order="F")
-
+    
     # compute control point locations
 
     start = time()
     disp = cploc(scene, win, mm, smou, d_info)
     end = time()
+    breakpoint()
     #disp = repair(rdisp, disp, d_info) # optional repair
     #rms = sqrt(total((rdisp - disp)^2)/n_elements(rdisp))
     #print, 'rms =', rms
@@ -882,6 +891,7 @@ def reg(scene, ref, kernel_size):
 
    
 
+    breakpoint()
     print(f"Total destr took: {end - start} seconds for kernel"
           +f"of size {kernel_size} px.")
     
@@ -911,6 +921,7 @@ def reg_loop(scene, ref, kernel_sizes):
 
     scene_temp = scene
     start = time()
+   
     for el in kernel_sizes:
         scene_temp, disp, rdisp, d_info = reg(scene_temp, ref, el)
 

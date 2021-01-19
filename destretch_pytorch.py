@@ -43,6 +43,20 @@ class Destretch_params():
 
 def plot_cps(ax_object, d_info):
 
+    """
+    Plot the control points for the destretching on the destretched 
+    image
+
+    Parameters
+    ----------
+    ax_object : matplotlib ax object
+        Axis object to have the control points plotted on;
+    d_info : class Destretch_params
+        Destretch Parameters;
+    
+    Returns
+    ------- 
+    """
     return 0
 
 def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
@@ -87,10 +101,10 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
         y0 = t.clamp(y0, 0, s.shape[0]-1)
         y1 = t.clamp(y1, 0, s.shape[0]-1)
      
-        fx = xy[0, 0, 0] % 1
-        fy = xy[0, 1, 0] % 1 
+        fx = xy[0, :, :] % 1
+        fy = xy[0, :, :] % 1 
 
-        print(s, x0.shape)
+        # print(s, x0.shape)
         ss00 = s[x0, y0]
         ss01 = s[x0, y1]
         ssfx = (s[x1, y0] - ss00) * fx
@@ -470,11 +484,14 @@ def doref(ref, mask, d_info):
             hx = hx + d_info.kx
         ly = ly + d_info.ky
         hy = hy + d_info.ky
-
-    z = z - t.sum(z, dim=(0, 1))/nelz 
+    
+    z_sum = t.sum(z, dim=(2, 3))/nelz
+    z = z - z_sum[:, :, None, None] 
     z = z * mask
     win = t.conj(t.fft.fftn(z, dim=(2, 3)))
-    
+
+    # Win seems to have jumbled dimensions compared to destretch.py
+    # as win have dimensions of [cpx, cpy, wbx, wby] 
 
     return win
 
@@ -487,7 +504,7 @@ def cploc(s, w, mask, smou, d_info):
     s : TYPE
         Scene to be registered
     w : TYPE
-        Reference image from doref
+        Reference image (window) from doref
     mask : TYPE
         DESCRIPTION.
     smou : TYPE
@@ -528,37 +545,30 @@ def cploc(s, w, mask, smou, d_info):
 
     s_fft = fft.fftn(s_vector, dim=(2, 3))
     ss_fft = s_fft * w * smou
+    
     ss_ifft = t.abs(t.fft.ifftn(ss_fft, dim=(2, 3)))
-    print(ss_ifft.shape)
+
+    # print(ss_ifft.shape)
     cc = t.roll(ss_ifft, (d_info.wx//2, d_info.wy//2), dims=(2, 3)) 
 
             
     mx  = t.amax(cc, dim=(2, 3))
-    loc = t.empty((d_info.cpx, d_info.cpy), device=d_info.device)   
-   
+    ss_ifft_flat = t.flatten(cc, start_dim=2, end_dim=3)
+    loc          = t.argmax(ss_ifft_flat, dim=2) 
     ccsz = cc.shape
-    xmax1 = loc % ccsz[0]
-    ymax1 = loc // ccsz[0]
-
-    #a more complicated interpolation
-    #(from Niblack, W: An Introduction to Digital Image Processing, p 139.)
-
-    #if ((xmax*ymax > 0) and (xmax < (ccsz[0]-1))
-    #    and (ymax < (ccsz[1]-1))):
-    if (1 == 0):
-        denom = mx*2 - cc[xmax-1,ymax] - cc[xmax+1,ymax]
-        xfra = (xmax-.5) + (mx-cc[xmax-1,ymax])/denom
-        denom = mx*2 - cc[xmax,ymax-1] - cc[xmax,ymax+1]
-        yfra = (ymax-.5) + (mx-cc[xmax,ymax-1])/denom
-
-        xmax1=xfra
-        ymax1=yfra
+    xmax1 = loc % ccsz[-1]
+    ymax1 = loc // ccsz[-2]
 
     xmax = xmax1.to("cpu") 
     ymax = ymax1.to("cpu")
-
-    ans[0,:, :] = d_info.wx + xmax
-    ans[1,:, :] = d_info.wy + ymax
+    
+    x_mesh = ((np.mgrid[0:d_info.cpx:1, 0:d_info.cpy:1])[0]*d_info.kx 
+              + d_info.bx)
+    y_mesh = ((np.mgrid[0:d_info.cpx:1, 0:d_info.cpy:1])[1]*d_info.ky 
+              + d_info.bx)
+    
+    ans[0,:, :] = t.from_numpy(x_mesh) + xmax
+    ans[1,:, :] = t.from_numpy(y_mesh) + ymax
 
     return ans
 
@@ -871,14 +881,15 @@ def reg(scene, ref, kernel_size, device=False):
   
     smou = smouth(d_info.wx, d_info.wy)
     smou = t.tensor(smou, device=device) 
-
+   
     #Condition the ref
     win = doref(ref, mm, d_info) 
     win = win.clone().detach().to(device)
+    
     ssz = scene.shape
     
     ans = np.zeros((ssz[0], ssz[1]), order="F")
-
+    
     # compute control point locations
 
     start = time()
@@ -897,6 +908,7 @@ def reg(scene, ref, kernel_size, device=False):
         #    win = doref (x, mm); optional update of window 
 
     
+    breakpoint()
     print(f"Total destr took: {end - start} seconds for kernel"
           +f"of size {kernel_size} px.")
 
@@ -940,13 +952,15 @@ def reg_loop(scene, ref, kernel_sizes, device="False"):
 
     scene = t.tensor(scene, device=device)
     ref   = t.tensor(ref, device=device)
-
+   
     for el in kernel_sizes:
-        scene, disp, rdisp, d_info = reg(scene, ref, el, 
+        scene1, disp, rdisp, d_info = reg(scene, ref, el, 
                                          device=device)
 
    
-    ans = scene.to("cpu")
+    ans = scene1.to("cpu")
+    scene = scene.to("cpu")
+    ref = ref.to("cpu") 
     
     
 
@@ -955,12 +969,13 @@ def reg_loop(scene, ref, kernel_sizes, device="False"):
 def test_destretch(scene, ref, kernel_size, plot=False, device=False):
 
     start = time() 
-
+    scene1 = scene.copy()
+    ref1   = ref.copy()
     ans1, disp, rdisp, d_info = reg_loop(scene, ref, kernel_size, 
                                          device=device)
     if plot==True:
         pl.figure(dpi=250)
-        pl.imshow(scene, origin=0)
+        pl.imshow(scene1, origin=0)
         pl.title("Original scene")
         pl.show()
 
@@ -970,7 +985,7 @@ def test_destretch(scene, ref, kernel_size, plot=False, device=False):
         pl.show()
 
         pl.figure(dpi=250)
-        pl.imshow(ref, origin=0)
+        pl.imshow(ref1, origin=0)
         pl.title("Reference")
         pl.show()
     end = time()

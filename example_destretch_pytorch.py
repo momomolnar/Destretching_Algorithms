@@ -16,6 +16,9 @@ test_data = Hdu[0].data
 
 scene = np.array(test_data[4, :, :]).astype(np.float32)
 reference = np.array(test_data[10, :, :]).astype(np.float32)
-kernel_sizes = [100, 64, 32]
 
-test_destretch(scene, scene, kernel_sizes, plot=True, device="CPU")
+kernel_sizes = [100, 64, 32]
+scene = np.random.random((6000, 6000))
+reference = np.random.random((6000, 6000))
+test_destretch(scene, reference, kernel_sizes,
+               plot=False, device="CPU")
