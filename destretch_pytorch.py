@@ -18,6 +18,7 @@ import matplotlib.pyplot as pl
 from time import time
 import torch as t
 import torch.fft as fft
+from flicker import flicker 
 
 class Destretch_params():
     """
@@ -988,6 +989,9 @@ def test_destretch(scene, ref, kernel_size, plot=False, device=False):
         pl.imshow(ref1, origin=0)
         pl.title("Reference")
         pl.show()
+
+        flicker(scene1, ans1)
+        flicker(ref1, ans1)
     end = time()
     print(f"Total elapsed time for test_function is {end-start}.")
     
