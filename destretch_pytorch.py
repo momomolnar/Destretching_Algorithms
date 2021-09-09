@@ -22,11 +22,17 @@ from flicker import flicker
 
 class Destretch_params():
     """
-    Class containing all the information about then
+    Class containing all the information about the 
+    destretching procedure.
 
     """
 
     def __init__(self, kx, ky, wx, wy, bx, by, cpx, cpy, device):
+        "
+        Initialize the class with the following parameters:
+            - kx - integer --
+        "
+
         self.kx = kx
         self.ky = ky
         self.wx = wx
