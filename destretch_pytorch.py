@@ -33,6 +33,18 @@ class Destretch_params():
             - kx - integer --
         "
 
+        """
+        Initiate the Destretch class with the following parameters
+        :param kx: spacing of the control points in x
+        :param ky: spacing of the control points in y
+        :param wx:
+        :param wy:
+        :param bx:
+        :param by:
+        :param cpx:
+        :param cpy:
+        :param device: device to be used (CPU or GPU)
+        """
         self.kx = kx
         self.ky = ky
         self.wx = wx
@@ -44,6 +56,10 @@ class Destretch_params():
         self.device = device
 
     def print_props(self):
+        """
+        Print the destretching properties
+        :return:
+        """
         print("[kx, ky, wx, wy, bx, by, cpx, cpy] are:")
         print(self.kx, self.ky, self.wx, self.wy, self.bx, self.by,
               self.cpx, self.cpy)
@@ -309,8 +325,8 @@ def patch(compx, compy, s, t):
         Description
 
     """
-    s     = np.array(s, order="F")
-    t     = np.array(t, order="F")
+    s = np.array(s, order="F")
+    t = np.array(t, order="F")
 
     len_s = len(s)
     len_t = len(t)

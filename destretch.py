@@ -40,7 +40,7 @@ class Destretch_params():
 
 def plot_cps(ax_object, d_info):
     """
-    Plot the control points for the destretching on the destretched 
+    Plot the control points for the destretching on the destretched
     image
 
     Parameters
@@ -49,9 +49,9 @@ def plot_cps(ax_object, d_info):
         Axis object to have the control points plotted on;
     d_info : class Destretch_params
         Destretch Parameters;
-    
+
     Returns
-    ------- 
+    -------
     """
     return 0
 
@@ -82,7 +82,7 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
         y = np.array(xy[:, :, 1] + .5, order="F")
 
     else:
-      
+
         x = np.array(xy[0, :, :], order="F")
         y = np.array(xy[1, :, :], order="F")
 
@@ -103,7 +103,7 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
 
         s  = np.array(s, order="F")
         ss = s.astype(float)
-        
+
 
         ss00 = ss[x0, y0]
         ss01 = ss[x0, y1]
@@ -111,7 +111,7 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
         ssfy = fy * (ss01 - ss00 + (ss[x1, y1] - ss01) * fx - ssfx)
         ans  = ss00 + ssfx + ssfy
 
-        
+
     return ans
 
 def bilin_control_points(scene, rdisp, disp,
@@ -152,16 +152,16 @@ def bilin_control_points(scene, rdisp, disp,
 
 
 
-    
-    xy_ref_coordinates[0, :, :] = [np.linspace(0, (scene_nx-1), 
-                                               num=scene_ny, dtype="int") 
+
+    xy_ref_coordinates[0, :, :] = [np.linspace(0, (scene_nx-1),
+                                               num=scene_ny, dtype="int")
                                    for el in range(scene_nx)]
-    xy_ref_coordinates[1, :, :] = [np.zeros(scene_ny, dtype="int")+el 
+    xy_ref_coordinates[1, :, :] = [np.zeros(scene_ny, dtype="int")+el
                                    for el in range(scene_nx)]
-    
+
     xy_ref_coordinates = np.swapaxes(xy_ref_coordinates, 1, 2)
-   
-  
+
+
 
 
     dd = disp - rdisp
@@ -189,7 +189,7 @@ def bilin_control_points(scene, rdisp, disp,
         pl.show()
 
     xy_grid += xy_ref_coordinates
-    
+
     return (xy_grid)
 
 def bspline(scene, r, dd, d_info):
@@ -473,7 +473,7 @@ def doref(ref, mask, d_info):
             z = z - np.sum(z)/nelz
             #z=z-np.polyfit(z[0,  :], z[1:, ],1)
             win[:, :, i, j] = np.conj(np.fft.fft2(z*mask))
-            
+
             lx = lx + d_info.kx
             hx = hx + d_info.kx
         ly = ly + d_info.ky
@@ -504,7 +504,7 @@ def cploc(s, w, mask, smou, d_info):
     ans: TYPE
 
     """
-   
+
     ans = np.zeros((2, d_info.cpx, d_info.cpy), order="F")
 
     nels = d_info.wx * d_info.wy
@@ -523,34 +523,36 @@ def cploc(s, w, mask, smou, d_info):
             #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
             ss_fft = np.array(np.fft.fft2(ss), order="F")
             ss_fft = ss_fft  * w[:, :, i, j] * smou
-           
+
             ss_ifft = np.abs(np.fft.ifft2(ss_fft), order="F")
-            cc = np.roll(ss_ifft, (d_info.wx//2, d_info.wy//2),
-                         axis=(0, 1))
-            
+            cc = np.fft.fftshift(ss_ifft)
+            #cc = np.roll(ss_ifft, (d_info.wx//2, d_info.wy//2),
+            #             axis=(0, 1))
+
             cc = np.array(cc, order="F")
             mx  = np.amax(cc)
             loc = cc.argmax()
 
 
             ccsz = cc.shape
-            xmax = loc % ccsz[0]
-            ymax = loc // ccsz[0]
-
+            ymax = loc % ccsz[0]
+            xmax = loc // ccsz[0]
+            # breakpoint()
             #a more complicated interpolation
             #(from Niblack, W: An Introduction to Digital Image Processing, p 139.)
 
-            #if ((xmax*ymax > 0) and (xmax < (ccsz[0]-1))
-            #    and (ymax < (ccsz[1]-1))):
-            if (1 == 0):
-                denom = mx*2 - cc[xmax-1,ymax] - cc[xmax+1,ymax]
-                xfra = (xmax-.5) + (mx-cc[xmax-1,ymax])/denom
+            if ((xmax*ymax > 0) and (xmax < (ccsz[0]-1))
+                and (ymax < (ccsz[1]-1))):
+            #if (1 == 1):
+                denom = 2 * mx - cc[xmax-1,ymax] - cc[xmax+1,ymax]
+                xfra = (xmax-1/2) + (mx-cc[xmax-1,ymax])/denom
 
-                denom = mx*2 - cc[xmax,ymax-1] - cc[xmax,ymax+1]
-                yfra = (ymax-.5) + (mx-cc[xmax,ymax-1])/denom
+                denom = 2 * mx - cc[xmax,ymax-1] - cc[xmax,ymax+1]
+                yfra = (ymax-1/2) + (mx-cc[xmax,ymax-1])/denom
 
-                xmax=xfra
-                ymax=yfra
+                # breakpoint()
+                xmax=yfra
+                ymax=xfra
 
 
             ans[0,i,j] = lx + xmax
@@ -869,16 +871,18 @@ def reg(scene, ref, kernel_size):
     #Condition the ref
     win = doref(ref, mm, d_info)
 
-    
+
     ssz = scene.shape
     ans = np.zeros((ssz[0], ssz[1]), order="F")
-    
+
     # compute control point locations
 
     start = time()
     disp = cploc(scene, win, mm, smou, d_info)
     end = time()
-    breakpoint()
+    dtime = end - start
+    print(f"Time for a scene destretch is {dtime:.3f}")
+
     #disp = repair(rdisp, disp, d_info) # optional repair
     #rms = sqrt(total((rdisp - disp)^2)/n_elements(rdisp))
     #print, 'rms =', rms
@@ -889,12 +893,12 @@ def reg(scene, ref, kernel_size):
     ans = x
         #    win = doref (x, mm); optional update of window
 
-   
 
-    breakpoint()
-    print(f"Total destr took: {end - start} seconds for kernel"
+
+
+    print(f"Total destr took: {(end - start):.5f} seconds for kernel"
           +f"of size {kernel_size} px.")
-    
+
     return ans, disp, rdisp, d_info
 
 def reg_loop(scene, ref, kernel_sizes):
@@ -921,12 +925,12 @@ def reg_loop(scene, ref, kernel_sizes):
 
     scene_temp = scene
     start = time()
-   
+
     for el in kernel_sizes:
         scene_temp, disp, rdisp, d_info = reg(scene_temp, ref, el)
 
     end = time()
-    print(f"Total elapsed time {end - start} seconds.")
+    print(f"Total elapsed time {(end - start):.4f} seconds.")
     ans = scene_temp
 
     return ans, disp, rdisp, d_info
