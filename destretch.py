@@ -399,19 +399,22 @@ def mask(nx, ny):
 
 def smouth(nx, ny):
     """
+    Smouthing (apodizing) window to be applied to the 2D FFTs to
+    remove HF noise.
+
     WORKS! Checked against IDl
 
     Parameters
     ----------
-    nx : TYPE
-        DESCRIPTION.
-    ny : TYPE
-        DESCRIPTION.
+    nx : integer
+        Window size in x-direction.
+    ny : integer
+        Window size in y-direction.
 
     Returns
     -------
-    mm : TYPE
-        DESCRIPTION.
+    mm : ndarry [nx, ny]
+        smoothing mask.
 
     """
 
@@ -877,11 +880,70 @@ def reg(scene, ref, kernel_size):
 
     # compute control point locations
 
-    start = time()
+    #start = time()
     disp = cploc(scene, win, mm, smou, d_info)
-    end = time()
-    dtime = end - start
-    print(f"Time for a scene destretch is {dtime:.3f}")
+    #end = time()
+    #dtime = end - start
+    #print(f"Time for a scene destretch is {dtime:.3f}")
+
+    #disp = repair(rdisp, disp, d_info) # optional repair
+    #rms = sqrt(total((rdisp - disp)^2)/n_elements(rdisp))
+    #print, 'rms =', rms
+    #mdisp = np.mean(rdisp-disp,axis=(1, 2))
+    #disp[0, :, :] += mdisp[0]
+    #disp[1, :, :] += mdisp[1]
+    x = doreg(scene, rdisp, disp, d_info)
+    ans = x
+        #    win = doref (x, mm); optional update of window
+
+#    print(f"Total destr took: {(end - start):.5f} seconds for kernel"
+ #         +f"of size {kernel_size} px.")
+
+    return ans, disp, rdisp, d_info
+
+def reg_saved_window(scene, win, kernel_size, d_info, rdisp, mm, smou):
+    """
+    Register scenes with respect to ref using kernel size and
+    then returns the destretched scene, using precomputed window.
+
+    Parameters
+    ----------
+    scene : [nx, ny] [nx, ny, nf]
+        Scene to be registered
+    win: [nx, ny, nf]
+        FFT of the reference scene (computed with doref)
+    kernel_size : int
+       Kernel size (otherwise unused)!!!!!
+
+    Returns
+    -------
+    ans : [nx, ny]
+        Destreched scene.
+    disp : ndarray (kx, ky)
+        Control point locations
+    rdisp : ndarray (kx, ky)
+        Reference control point locations
+
+    """
+    kernel = np.zeros((kernel_size, kernel_size))
+
+    # d_info, rdisp = mkcps(ref, kernel)
+    # mm = mask(d_info.wx, d_info.wy)
+    # smou = smouth(d_info.wx, d_info.wy)
+    #Condition the ref
+    #win = doref(ref, mm, d_info)
+
+
+    ssz = scene.shape
+    ans = np.zeros((ssz[0], ssz[1]), order="F")
+
+    # compute control point locations
+
+    #start = time()
+    disp = cploc(scene, win, mm, smou, d_info)
+   # end = time()
+  #  dtime = end - start
+ #   print(f"Time for a scene destretch is {dtime:.3f}")
 
     #disp = repair(rdisp, disp, d_info) # optional repair
     #rms = sqrt(total((rdisp - disp)^2)/n_elements(rdisp))
@@ -896,15 +958,14 @@ def reg(scene, ref, kernel_size):
 
 
 
-    print(f"Total destr took: {(end - start):.5f} seconds for kernel"
-          +f"of size {kernel_size} px.")
+    #print(f"Total destr took: {(end - start):.5f} seconds for kernel"
+    #      +f"of size {kernel_size} px.")
 
     return ans, disp, rdisp, d_info
 
+
 def reg_loop(scene, ref, kernel_sizes):
     """
-
-
     Parameters
     ----------
     scene : ndarray (nx, ny)
@@ -932,6 +993,71 @@ def reg_loop(scene, ref, kernel_sizes):
     end = time()
     print(f"Total elapsed time {(end - start):.4f} seconds.")
     ans = scene_temp
+
+    return ans, disp, rdisp, d_info
+
+
+def reg_loop_series(scene, ref, kernel_sizes):
+    """
+    Parameters
+    ----------
+    scene : ndarray (nx, ny, nt)
+        Image to be destretched
+    ref : ndarray (nx, ny)
+        Reference image
+    kernel_sizes : ndarray (n_kernels)
+        Sizes of the consecutive kernels to be applied
+
+    Returns
+    -------
+    ans : ndarray (nx, ny)
+        Destretched scene
+    d_info: Destretch class
+        Parameters of the destretching
+    """
+
+    num_scenes = scene.shape[2]
+    scene_d = np.zeros((scene.shape))
+
+    start = time()
+    num_kernels = len(kernel_sizes)
+    windows = {}
+    d_info_d = {}
+    mm_d = {}
+    smou_d = {}
+    rdisp_d = {}
+
+    # d_info, rdisp = mkcps(ref, kernel)
+    # mm = mask(d_info.wx, d_info.wy)
+    # smou = smouth(d_info.wx, d_info.wy)
+    for kernel1 in kernel_sizes:
+        kernel = np.zeros((kernel1, kernel1))
+
+        d_info, rdisp = mkcps(ref, kernel)
+        d_info_d[kernel1] = d_info
+        rdisp_d[kernel1] = rdisp
+
+        mm = mask(d_info.wx, d_info.wy)
+        mm_d[kernel1] = mm
+
+        smou = smouth(d_info.wx, d_info.wy)
+        smou_d[kernel1] = smou
+
+        win = doref(ref, mm, d_info)
+        windows[kernel1] = win
+
+    for t in range(num_scenes):
+        for k in kernel_sizes:
+            scene_d[:, :, t], disp, rdisp, d_info = reg_saved_window(scene[:, :, t],
+                                                                     windows[k],
+                                                                     k, d_info_d[k],
+                                                                     rdisp_d[k],
+                                                                     mm_d[k],
+                                                                     smou_d[k])
+
+    end = time()
+    print(f"Total elapsed time {(end - start):.4f} seconds.")
+    ans = scene_d
 
     return ans, disp, rdisp, d_info
 
