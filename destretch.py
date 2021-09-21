@@ -23,7 +23,7 @@ class Destretch_params():
 
     """
 
-    def __init__(self, kx, ky, wx, wy, bx, by, cpx, cpy):
+    def __init__(self, kx, ky, wx, wy, bx, by, cpx, cpy, mf=0.08):
         self.kx = kx
         self.ky = ky
         self.wx = wx
@@ -32,11 +32,12 @@ class Destretch_params():
         self.by = by
         self.cpx = cpx
         self.cpy = cpy
+        self.mf = mf
 
     def print_props(self):
-        print("[kx, ky, wx, wy, bx, by, cpx, cpy] are:")
+        print("[kx, ky, wx, wy, bx, by, cpx, cpy, mf] are:")
         print(self.kx, self.ky, self.wx, self.wy, self.bx, self.by,
-              self.cpx, self.cpy)
+              self.cpx, self.cpy, self.mf)
 
 def plot_cps(ax_object, d_info):
     """
@@ -377,29 +378,48 @@ def extend(r, d):
 
     return rd, sd
 
-def mask(nx, ny):
+def apod_mask(nx, ny, fraction=0.08):
     """
-    Create a mask over the apertures
+    Create an apodization mask over the apertures
+    to reduce FFT edge effects.
 
     Parameters
     ----------
-    nx : TYPE
-        DESCRIPTION.
-    ny : TYPE
-        DESCRIPTION.
+    nx : int
+        Width of window in pixels
+    ny : int
+        Height of window in pixels
+    fraction: float
+        Fraction of window over which intensity drops to zero
 
     Returns
     -------
-    None.
+    Apodization window (NumPy array)
 
     """
-    m = np.ones((int(nx), int(ny)), order="F")
+    taper_wx = int(nx * min(fraction, 0.5))
+    taper_wy = int(ny * min(fraction, 0.5))
+
+    filt_x = signal.windows.blackman(2 * taper_wx)
+    filt_y = signal.windows.blackman(2 * taper_wy)
+
+    left = filt_x[:taper_wx]
+    right = left[::-1]
+    top = filt_y[:taper_wy]
+    bottom = top[::-1]
+    center_x = np.ones(nx - 2*taper_wx)
+    center_y = np.ones(ny - 2*taper_wy)
+
+    x_arr = np.concatenate((left, center_x, right))
+    y_arr = np.concatenate((top, center_y, bottom))
+
+    m = np.array(np.outer(x_arr, y_arr), order='F')
 
     return m
 
 def smouth(nx, ny):
     """
-    Smouthing (apodizing) window to be applied to the 2D FFTs to
+    Smouthing window to be applied to the 2D FFTs to
     remove HF noise.
 
     WORKS! Checked against IDl
@@ -444,7 +464,7 @@ def smouth(nx, ny):
 
     return mm
 
-def doref(ref, mask, d_info):
+def doref(ref, apod_mask, d_info):
     """
     Setup reference window
 
@@ -475,7 +495,7 @@ def doref(ref, mask, d_info):
             z = ref[lx:hx+1, ly:hy+1]
             z = z - np.sum(z)/nelz
             #z=z-np.polyfit(z[0,  :], z[1:, ],1)
-            win[:, :, i, j] = np.conj(np.fft.fft2(z*mask))
+            win[:, :, i, j] = np.conj(np.fft.fft2(z*apod_mask))
 
             lx = lx + d_info.kx
             hx = hx + d_info.kx
@@ -485,7 +505,7 @@ def doref(ref, mask, d_info):
 
     return win
 
-def cploc(s, w, mask, smou, d_info):
+def cploc(s, w, apod_mask, smou, d_info):
     """
     Locate control points
 
@@ -525,7 +545,7 @@ def cploc(s, w, mask, smou, d_info):
 
             #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
             ss_fft = np.array(np.fft.fft2(ss), order="F")
-            ss_fft = ss_fft  * w[:, :, i, j] * smou
+            ss_fft = ss_fft  * w[:, :, i, j] #* smou
 
             ss_ifft = np.abs(np.fft.ifft2(ss_fft), order="F")
             cc = np.fft.fftshift(ss_ifft)
@@ -719,7 +739,7 @@ def mkcps(ref, kernel):
         ly = ly + ky
         hy = hy + ky
 
-    d_info = Destretch_params(kx, ky, wx, wy, bx, by, cpx, cpy)
+    d_info = Destretch_params(kx, ky, wx, wy, bx, by, cpx, cpy, mf=0.08)
 
     return d_info, rcps
 
@@ -814,8 +834,9 @@ def cps(scene, ref, kernel):
     d_info, rdisp = mkcps(ref, kernel)
 
 
-    mm = np.zeros((d_info.wx,d_info.wy), order="F")
-    mm[:, :] = 1
+    #mm = np.zeros((d_info.wx,d_info.wy), order="F")
+    #mm[:, :] = 1
+    mm = apod_mask(d_info.wx, d_info.wy, d_info.mf)
 
     smou = np.zeros((d_info.wx,d_info.wy), order="F")
     smou[:, :] = 1
@@ -842,7 +863,7 @@ def cps(scene, ref, kernel):
 
     return ans
 
-def reg(scene, ref, kernel_size):
+def reg(scene, ref, kernel_size, mf=0.08):
     """
     Register scenes with respect to ref using kernel size and
     then returns the destretched scene.
@@ -869,7 +890,7 @@ def reg(scene, ref, kernel_size):
     kernel = np.zeros((kernel_size, kernel_size))
 
     d_info, rdisp = mkcps(ref, kernel)
-    mm = mask(d_info.wx, d_info.wy)
+    mm = apod_mask(d_info.wx, d_info.wy, d_info.mf)
     smou = smouth(d_info.wx, d_info.wy)
     #Condition the ref
     win = doref(ref, mm, d_info)
@@ -964,7 +985,7 @@ def reg_saved_window(scene, win, kernel_size, d_info, rdisp, mm, smou):
     return ans, disp, rdisp, d_info
 
 
-def reg_loop(scene, ref, kernel_sizes):
+def reg_loop(scene, ref, kernel_sizes, mf=0.08):
     """
     Parameters
     ----------
@@ -997,7 +1018,7 @@ def reg_loop(scene, ref, kernel_sizes):
     return ans, disp, rdisp, d_info
 
 
-def reg_loop_series(scene, ref, kernel_sizes):
+def reg_loop_series(scene, ref, kernel_sizes, mf=0.08):
     """
     Parameters
     ----------
@@ -1037,7 +1058,7 @@ def reg_loop_series(scene, ref, kernel_sizes):
         d_info_d[kernel1] = d_info
         rdisp_d[kernel1] = rdisp
 
-        mm = mask(d_info.wx, d_info.wy)
+        mm = apod_mask(d_info.wx, d_info.wy, d_info.mf)
         mm_d[kernel1] = mm
 
         smou = smouth(d_info.wx, d_info.wy)
@@ -1045,6 +1066,11 @@ def reg_loop_series(scene, ref, kernel_sizes):
 
         win = doref(ref, mm, d_info)
         windows[kernel1] = win
+        
+    disp_l = list(rdisp.shape)
+    disp_l.append(num_scenes)
+    disp_t = tuple(disp_l)
+    disp_all = np.zeros(disp_t)
 
     for t in range(num_scenes):
         for k in kernel_sizes:
@@ -1054,12 +1080,13 @@ def reg_loop_series(scene, ref, kernel_sizes):
                                                                      rdisp_d[k],
                                                                      mm_d[k],
                                                                      smou_d[k])
+        disp_all[:, :, :, t] = disp
 
     end = time()
     print(f"Total elapsed time {(end - start):.4f} seconds.")
     ans = scene_d
 
-    return ans, disp, rdisp, d_info
+    return ans, disp_all, rdisp, d_info
 
 def test_destretch(scene, ref, kernel_size, plot=False):
     start = time()
