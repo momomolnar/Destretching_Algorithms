@@ -887,6 +887,8 @@ def reg(scene, ref, kernel_size, mf=0.08):
         Reference control point locations
 
     """
+    scene -= scene.mean()
+    ref -= ref.mean()
     kernel = np.zeros((kernel_size, kernel_size))
 
     d_info, rdisp = mkcps(ref, kernel)
