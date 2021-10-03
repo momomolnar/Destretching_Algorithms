@@ -681,7 +681,7 @@ def mkcps_overlapping(ref, kernel, box_size):
     """
     return d_info, rcps
 
-def mkcps(ref, kernel):
+def mkcps(ref, kernel, mf=0.08):
     """
     Seems to work
     Choose control point locations in the reference
@@ -739,7 +739,7 @@ def mkcps(ref, kernel):
         ly = ly + ky
         hy = hy + ky
 
-    d_info = Destretch_params(kx, ky, wx, wy, bx, by, cpx, cpy, mf=0.08)
+    d_info = Destretch_params(kx, ky, wx, wy, bx, by, cpx, cpy, mf)
 
     return d_info, rcps
 
@@ -891,7 +891,7 @@ def reg(scene, ref, kernel_size, mf=0.08):
     ref -= ref.mean()
     kernel = np.zeros((kernel_size, kernel_size))
 
-    d_info, rdisp = mkcps(ref, kernel)
+    d_info, rdisp = mkcps(ref, kernel, mf)
     mm = apod_mask(d_info.wx, d_info.wy, d_info.mf)
     smou = smouth(d_info.wx, d_info.wy)
     #Condition the ref
@@ -1056,7 +1056,7 @@ def reg_loop_series(scene, ref, kernel_sizes, mf=0.08):
     for kernel1 in kernel_sizes:
         kernel = np.zeros((kernel1, kernel1))
 
-        d_info, rdisp = mkcps(ref, kernel)
+        d_info, rdisp = mkcps(ref, kernel, mf)
         d_info_d[kernel1] = d_info
         rdisp_d[kernel1] = rdisp
 
