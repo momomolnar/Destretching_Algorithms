@@ -124,10 +124,21 @@ def calc_synthetic_destretch(kernel_size,
             dots_image_sft = shift(dots_image_ref, apply_shift)
     
 #    corr = signal.correlate2d(dots_image_sft, dots_image_ref, boundary='symm')
-    corr = np.fft.ifft2(np.fft.fft2(dots_image_sft).conj()*np.fft.fft2(dots_image_ref))
-    calc_shift = -np.array(np.unravel_index(np.argmax(corr), corr.shape))
-    calc_shift = (calc_shift + 500) % 1000 - 500
+    fs = np.fft.fft2(dots_image_sft)
+    fr = np.fft.fft2(dots_image_ref)
+    f = np.abs(np.fft.fftshift(np.fft.ifft2(fr.conj()*fs)))
+    fx = np.max(f)
+    ip = np.where(f==fx)
+    iy = ip[0]
+    ix = ip[1]
+    pp = np.squeeze(np.array(ip)[::-1].astype(float))
+    if ix and (numx - ix - 1):
+        pp[0] = pp[0] + 0.5*(f[iy,ix+1] - f[iy,ix-1])/(2*fx - f[iy,ix-1] - f[iy,ix+1])
+    if iy and (numy - iy - 1):
+        pp[1] = pp[1] + 0.5*(f[iy+1,ix] - f[iy-1,ix])/(2*fx - f[iy-1,ix] - f[iy+1,ix])
+    calc_shift = pp - 500
     if debug_level:
+        print('input_shift = ' + repr(apply_shift))
         print('calc_shift = ' + repr(calc_shift))
     if gaussian_blur:
         if debug_level:
@@ -215,20 +226,20 @@ if __name__ == "__main__":
     wl_mfbd[8:-8, 8:-8] = wl_mfbd_in[8:-8, 8:-8]
     wl_mfbd /= wl_mfbd.mean()
     
-    num_repeats = 10
+    num_repeats = 100
     
     rng = np.random.default_rng()
     shifts = rng.random(size=(2, num_repeats)) * sft_range * 2 - sft_range
     
     kerns = [16,24,32,48,64,96,128,192]
-    apods = np.arange(26)*0.01
+    apods = (np.arange(25) + 1)*0.01
     dotradii = np.arange(15) + 1
-    smoothing = [0.0,0.5,1.0,1.5,2.0,2.5,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0]
+    smoothing = [0.1,0.5,1.0,1.5,2.0,2.5,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0]
     
-    vary_kernels = 0
+    vary_kernels = 1
     vary_apod    = 0
     vary_dotrad  = 0
-    vary_smooth  = 1
+    vary_smooth  = 0
 
     use_real_im = 0
     
@@ -252,7 +263,7 @@ if __name__ == "__main__":
         kern_size = 32
         dotrad = 6
         apod_val = 0.1
-        smooth_val = 0.0
+        smooth_val = 1.0
         
         if vary_kernels:
             kern_size = kerns[param_idx]
@@ -308,22 +319,22 @@ if __name__ == "__main__":
         disp_stats_sfts_all[:, :, param_idx] = disp_stats_shifts
 #        print(repr(disp_stats_shifts))
         
-        linfit_sfts_mean_x = np.polyfit(disp_stats_shifts[1, :], disp_stats_shifts[2, :], 1)
-        linfit_sfts_mean_y = np.polyfit(disp_stats_shifts[0, :], disp_stats_shifts[3, :], 1)
-        linfit_sfts_med_x = np.polyfit(disp_stats_shifts[1, :], disp_stats_shifts[4, :], 1)
-        linfit_sfts_med_y = np.polyfit(disp_stats_shifts[0, :], disp_stats_shifts[5, :], 1)
+        linfit_sfts_mean_x = np.polyfit(disp_stats_shifts[0, :], disp_stats_shifts[2, :], 1)
+        linfit_sfts_mean_y = np.polyfit(disp_stats_shifts[1, :], disp_stats_shifts[3, :], 1)
+        linfit_sfts_med_x = np.polyfit(disp_stats_shifts[0, :], disp_stats_shifts[4, :], 1)
+        linfit_sfts_med_y = np.polyfit(disp_stats_shifts[1, :], disp_stats_shifts[5, :], 1)
 
         sfts_rms_med_x = np.median(disp_stats_shifts[6, :])
         sfts_rms_med_y = np.median(disp_stats_shifts[7, :])
         
-        linfit_rms_x = np.polyfit(np.abs(disp_stats_shifts[1, :]), disp_stats_shifts[6, :], 1)
-        linfit_rms_y = np.polyfit(np.abs(disp_stats_shifts[0, :]), disp_stats_shifts[7, :], 1)
+        linfit_rms_x = np.polyfit(np.abs(disp_stats_shifts[0, :]), disp_stats_shifts[6, :], 1)
+        linfit_rms_y = np.polyfit(np.abs(disp_stats_shifts[1, :]), disp_stats_shifts[7, :], 1)
 
         image_int_ave      = np.median(disp_stats_shifts[8, :])
         image_rms_ave      = np.median(disp_stats_shifts[9, :])
 
-        image_sft_change_x = np.median(disp_stats_shifts[1, :] / shifts[0, :])
-        image_sft_change_y = np.median(disp_stats_shifts[0, :] / shifts[1, :])
+        image_sft_change_x = np.median(disp_stats_shifts[0, :] / shifts[0, :])
+        image_sft_change_y = np.median(disp_stats_shifts[1, :] / shifts[1, :])
 
         end_time = time.time()
         time_per_cycle = (end_time - start_time) / num_repeats
@@ -356,9 +367,15 @@ if __name__ == "__main__":
     for i in range(5):
         for j in range(4):
             try:
-                ax[i, j].scatter(indep_var, destr_stats_byparam[4*i+j])
+                dep_var = np.abs(destr_stats_byparam[4*i+j])
+                if np.median(dep_var) > 0.8 and np.max(dep_var) < 1.2:
+                    dep_var = max(1, np.max(dep_var)*1.0001) - dep_var
+                ax[i, j].scatter(indep_var, dep_var)
+                ax[i, j].set_xscale('log')
+                ax[i, j].set_yscale('log')
             except:
                 break
+    plt.tight_layout()
     plt.savefig('synthetic_destretch_results_{}{}{}{}.pdf'.format(vary_kernels,
                                                                   vary_apod,
                                                                   vary_dotrad,
