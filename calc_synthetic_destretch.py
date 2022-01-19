@@ -6,6 +6,7 @@ import tqdm
 import matplotlib.pyplot as plt
 from astropy.io import fits
 from scipy.ndimage import rotate, shift, gaussian_filter
+from scipy.signal import wiener
 
 def radial_distances(array_size, central_point=[0,0]):
 
@@ -50,7 +51,9 @@ def calc_synthetic_destretch(kernel_size,
                              debug_level=0,
                              plot_level=0,
                              flip_image=0,
-                             gaussian_blur=0.0):
+                             gaussian_blur=0.0,
+                             use_fft=False,
+                             adf2_pad=0.25):
 
     rot_angle = apply_rotation
     cent = 500
@@ -61,7 +64,7 @@ def calc_synthetic_destretch(kernel_size,
     
     if (not np.any(input_image)) or regenerate_image:
         if debug_level:
-            print('Generating random images')
+            print('\nGenerating random images')
         # Generate image of random dots
         numx = 1000
         numy = 1000
@@ -112,7 +115,7 @@ def calc_synthetic_destretch(kernel_size,
             print('Images successfully created')
     else:
         if debug_level:
-            print('Using provided images')
+            print('\nUsing provided images')
         dots_image_ref = input_image
         scene_size = dots_image_ref.shape
         numy = scene_size[0]
@@ -121,7 +124,7 @@ def calc_synthetic_destretch(kernel_size,
         if apply_rotation:
             dots_image_sft = rotate_around_point(dots_image_ref, rot_angle, [cent, cent], 3)
         else:
-            dots_image_sft = shift(dots_image_ref, apply_shift)
+            dots_image_sft = shift(dots_image_ref, apply_shift[::-1])
     
 #    corr = signal.correlate2d(dots_image_sft, dots_image_ref, boundary='symm')
     fs = np.fft.fft2(dots_image_sft)
@@ -165,7 +168,7 @@ def calc_synthetic_destretch(kernel_size,
         data_ref_norm = dots_image_ref / np.mean(dots_image_ref)
         data_sft_norm = dots_image_sft / np.mean(dots_image_sft)
         dots_image_ref = data_ref_norm * (1 + rng2.normal(size=(numy, numx))*noise_level)
-        dots_image_sft = data_sft_norm * (1 + rng3.normal(size=(numy, numx))*noise_level)
+        dots_image_sft = data_sft_norm * (1 + rng2.normal(size=(numy, numx))*noise_level)
     else:
         if debug_level:
             print('No shot noise')
@@ -182,7 +185,9 @@ def calc_synthetic_destretch(kernel_size,
     data_sft_noisy_reg, disp, rdisp, d_info = reg(dots_image_sft,
                                                   dots_image_ref,
                                                   kernel_size,
-                                                  mf=apod_percent)
+                                                  apod_percent,
+                                                  use_fft,
+                                                  adf2_pad)
     if debug_level:
         print('Destretching complete!')
     shifts_destr_x = (disp - rdisp)[0]
@@ -217,31 +222,36 @@ def calc_synthetic_destretch(kernel_size,
     return vector_ratio, disp_output
     
     
-if __name__ == "__main__":
-
-    sft_range = 4
+def syn_destretch_wrapper(num_repeats=100,
+                          sft_range=4,
+                          vary_kernels=0,
+                          vary_apod=0,
+                          vary_dotrad=0,
+                          vary_smooth=0,
+                          kern_size=64,
+                          apod_val=0.1,
+                          dotrad=4,
+                          smooth_val=0.,
+                          use_real_im=0,
+                          noise_level=0,
+                          use_fft=False,
+                          adf2_pad=0.25):
 
     wl_mfbd_in = fits.open('/home/ryan/Destretching_Algorithms/test/whitelight.burst.20170423_172226.seq00.im000.rot.fits')[0].data.astype(float)
+#    wl_mfbd_in = fits.open('/home/ryan/Downloads/full_image_high.fits')[0].data[1,2500:5500:3,2500:5500:3].astype(float)
+#    wl_mfbd_in = fits.open('/home/ryan/Downloads/BBSO_TiO_speckle_20171004_194448.fts')[0].data[400:1400,400:1400].astype(float)
     wl_mfbd = np.zeros((1000, 1000)) + wl_mfbd_in.mean()
-    wl_mfbd[8:-8, 8:-8] = wl_mfbd_in[8:-8, 8:-8]
+    wl_mfbd[8:-8, 8:-8] = wiener(wl_mfbd_in[8:-8, 8:-8])
     wl_mfbd /= wl_mfbd.mean()
-    
-    num_repeats = 100
     
     rng = np.random.default_rng()
     shifts = rng.random(size=(2, num_repeats)) * sft_range * 2 - sft_range
     
-    kerns = [16,24,32,48,64,96,128,192]
+    kerns = [24,32,48,64,96]
+#    kerns = [30, 40, 50, 60, 70, 80]
     apods = (np.arange(25) + 1)*0.01
     dotradii = np.arange(15) + 1
     smoothing = [0.1,0.5,1.0,1.5,2.0,2.5,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0]
-    
-    vary_kernels = 1
-    vary_apod    = 0
-    vary_dotrad  = 0
-    vary_smooth  = 0
-
-    use_real_im = 0
     
     if vary_kernels:
         params_num = len(kerns)
@@ -260,11 +270,6 @@ if __name__ == "__main__":
     disp_stats_sfts_all = np.zeros((10, num_repeats, params_num))
     
     for param_idx in range(params_num):
-        kern_size = 32
-        dotrad = 6
-        apod_val = 0.1
-        smooth_val = 1.0
-        
         if vary_kernels:
             kern_size = kerns[param_idx]
         elif vary_apod:
@@ -292,7 +297,7 @@ if __name__ == "__main__":
             sfts = shifts[:, nn]
             
             debug_level = 1 if nn == 0 else 0
-            plot_level = 2 if nn == 0 else 0
+            plot_level = 0 if nn == 0 else 0
             
             gg2, disp_out_temp = calc_synthetic_destretch(kern_size,
                                                           apod_percent=apod_val,
@@ -303,7 +308,10 @@ if __name__ == "__main__":
                                                           debug_level=debug_level,
                                                           plot_level=plot_level,
                                                           flip_image=0,
-                                                          gaussian_blur=smooth_val)
+                                                          gaussian_blur=smooth_val,
+                                                          noise_level=0,
+                                                          use_fft=use_fft,
+                                                          adf2_pad=adf2_pad)
             
             stats = [disp_out_temp['measured_shift'][0],
                      disp_out_temp['measured_shift'][1],
@@ -358,25 +366,56 @@ if __name__ == "__main__":
                                              time_per_cycle,
                                              image_sft_change_x,
                                              image_sft_change_y]
-        print(repr(destr_stats_byparam[:, param_idx]))
+#        print(repr(destr_stats_byparam[:, param_idx]))
     
-    for param in range(19):
-        print(repr(destr_stats_byparam[param]))
-    
+#    for param in range(19):
+#        print(repr(destr_stats_byparam[param]))
+    return indep_var, destr_stats_byparam
+
+
+if __name__ == "__main__":
+    num_repeats = 10
+    sft_range = 2
+    vary_kernels = 1
+    vary_apod = 0
+    vary_dotrad = 0
+    vary_smooth = 0
+    kern_size = 64
+    apod_val = 0.1
+    dotrad = 4
+    smooth_val = 0
+    use_real_im = 1
+    indep_var, destr_stats_byparam = syn_destretch_wrapper(num_repeats,
+                                                           sft_range,
+                                                           vary_kernels,
+                                                           vary_apod,
+                                                           vary_dotrad,
+                                                           vary_smooth,
+                                                           kern_size,
+                                                           apod_val,
+                                                           dotrad,
+                                                           smooth_val,
+                                                           use_real_im,
+                                                           noise_level=0,
+                                                           use_fft=True,
+                                                           adf2_pad=0.1)
     fig, ax = plt.subplots(5, 4, figsize=(16, 10))
     for i in range(5):
         for j in range(4):
             try:
-                dep_var = np.abs(destr_stats_byparam[4*i+j])
-                if np.median(dep_var) > 0.8 and np.max(dep_var) < 1.2:
-                    dep_var = max(1, np.max(dep_var)*1.0001) - dep_var
+#                dep_var = np.abs(destr_stats_byparam[4*i+j])
+                dep_var = destr_stats_byparam[4*i+j]
+#                if np.median(dep_var) > 0.8 and np.max(dep_var) < 1.2:
+#                    dep_var = max(1, np.max(dep_var)*1.0001) - dep_var
+#                    dep_var -= 1
                 ax[i, j].scatter(indep_var, dep_var)
-                ax[i, j].set_xscale('log')
-                ax[i, j].set_yscale('log')
+#                ax[i, j].set_xscale('log')
+#                ax[i, j].set_yscale('log')
             except:
                 break
     plt.tight_layout()
-    plt.savefig('synthetic_destretch_results_{}{}{}{}.pdf'.format(vary_kernels,
-                                                                  vary_apod,
-                                                                  vary_dotrad,
-                                                                  vary_smooth))
+#    plt.savefig('synthetic_destretch_results_{}{}{}{}.pdf'.format(vary_kernels,
+#                                                                  vary_apod,
+#                                                                  vary_dotrad,
+#                                                                  vary_smooth))
+    plt.savefig('synthetic_destretch_results_cff.pdf')

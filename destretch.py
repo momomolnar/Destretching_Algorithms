@@ -464,7 +464,7 @@ def smouth(nx, ny):
 
     return mm
 
-def doref(ref, apod_mask, d_info):
+def doref(ref, apod_mask, d_info, use_fft=False):
     """
     Setup reference window
 
@@ -487,15 +487,18 @@ def doref(ref, apod_mask, d_info):
                    dtype="complex", order="F")
     nelz = d_info.wx * d_info.wy
     ly = d_info.by
-    hy = ly + d_info.wy -1
+    hy = ly + d_info.wy
     for j in range(0, d_info.cpy):
         lx = d_info.bx
-        hx = lx + d_info.wx - 1
+        hx = lx + d_info.wx
         for i in range(0, d_info.cpx):
-            z = ref[lx:hx+1, ly:hy+1]
+            z = ref[lx:hx, ly:hy]
             z = z - np.sum(z)/nelz
             #z=z-np.polyfit(z[0,  :], z[1:, ],1)
-            win[:, :, i, j] = np.conj(np.fft.fft2(z*apod_mask))
+            if use_fft:
+                win[:, :, i, j] = np.conj(np.fft.fft2(z*apod_mask))
+            else:
+                win[:, :, i, j] = z
 
             lx = lx + d_info.kx
             hx = hx + d_info.kx
@@ -505,7 +508,7 @@ def doref(ref, apod_mask, d_info):
 
     return win
 
-def cploc(s, w, apod_mask, smou, d_info):
+def cploc(s, w, apod_mask, smou, d_info, use_fft=False, adf2_pad=0.25):
     """
     Locate control points
 
@@ -532,6 +535,10 @@ def cploc(s, w, apod_mask, smou, d_info):
 
     nels = d_info.wx * d_info.wy
 
+#    pad_x = int(d_info.kx * adf2_pad)
+#    pad_y = int(d_info.ky * adf2_pad)
+    pad_x, pad_y = 3, 3
+
     ly = d_info.by
     hy = ly + d_info.wy
     for j in range(0, d_info.cpy):
@@ -539,20 +546,26 @@ def cploc(s, w, apod_mask, smou, d_info):
         hx = lx + d_info.wx
 
         for i in range(0, d_info.cpx):
+            if use_fft:
+                #cross correlation, inline
+                ss = s[lx:hx, ly:hy]
+                #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
+                ss_fft = np.array(np.fft.fft2(ss), order="F")
+                ss_fft = ss_fft  * w[:, :, i, j] #* smou
 
-            #cross correlation, inline
-            ss = s[lx:hx, ly:hy]
+                ss_ifft = np.abs(np.fft.ifft2(ss_fft), order="F")
+                cc = np.fft.fftshift(ss_ifft)
+                #cc = np.roll(ss_ifft, (d_info.wx//2, d_info.wy//2),
+                #             axis=(0, 1))
 
-            #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
-            ss_fft = np.array(np.fft.fft2(ss), order="F")
-            ss_fft = ss_fft  * w[:, :, i, j] #* smou
-
-            ss_ifft = np.abs(np.fft.ifft2(ss_fft), order="F")
-            cc = np.fft.fftshift(ss_ifft)
-            #cc = np.roll(ss_ifft, (d_info.wx//2, d_info.wy//2),
-            #             axis=(0, 1))
-
-            cc = np.array(cc, order="F")
+                cc = np.array(cc, order="F")
+            else:
+                ss = s[lx-pad_x:hx+pad_x, ly-pad_y:hy+pad_y]
+                cc = np.zeros((2*pad_x + 1, 2*pad_y + 1), order="C")
+                for n in range(2*pad_y + 1):
+                    for m in range(2*pad_x + 1):
+                        cc[m, n] = -np.sum(np.abs(ss[m:m+d_info.wx, n:n+d_info.wy]
+                                                 - w[:, :, i, j]))**2
             mx  = np.amax(cc)
             loc = cc.argmax()
 
@@ -577,9 +590,12 @@ def cploc(s, w, apod_mask, smou, d_info):
                 xmax=yfra
                 ymax=xfra
 
-
-            ans[0,i,j] = lx + xmax
-            ans[1,i,j] = ly + ymax
+            if use_fft:
+                ans[0,i,j] = lx + xmax
+                ans[1,i,j] = ly + ymax
+            else:
+                ans[0,i,j] = lx + d_info.kx + xmax - pad_x
+                ans[1,i,j] = ly + d_info.ky + ymax - pad_y
 
             lx = lx + d_info.kx
             hx = hx + d_info.kx
@@ -808,7 +824,7 @@ def repair(ref, disp, d_info):
         j += 1
     return good
 
-def cps(scene, ref, kernel):
+def cps(scene, ref, kernel, use_fft=False, adf2_pad=0.25):
     """
     Control points for sequence destretch
 
@@ -843,7 +859,7 @@ def cps(scene, ref, kernel):
 
 
     ref = ref/np.average(ref)*np.average(scene)
-    win = doref(ref, mm, d_info)
+    win = doref(ref, mm, d_info, use_fft)
 
     ssz = scene.shape
     nf = ssz[2]
@@ -853,7 +869,7 @@ def cps(scene, ref, kernel):
 
     # compute control point locations
     for frm in range(0, nf):
-        ans[:, :, :, frm] = cploc(scene[:, :, :, frm], win, mm, smou, d_info)
+        ans[:, :, :, frm] = cploc(scene[:, :, :, frm], win, mm, smou, d_info, use_fft, adf2_pad)
         #ans[:, :, :, frm] = repair(rdisp, ans[:, :, :,frm], d_info)# optional repair
 
     if ssz[2]:
@@ -863,7 +879,7 @@ def cps(scene, ref, kernel):
 
     return ans
 
-def reg(scene, ref, kernel_size, mf=0.08):
+def reg(scene, ref, kernel_size, mf=0.08, use_fft=False, adf2_pad=0.25):
     """
     Register scenes with respect to ref using kernel size and
     then returns the destretched scene.
@@ -895,7 +911,7 @@ def reg(scene, ref, kernel_size, mf=0.08):
     mm = apod_mask(d_info.wx, d_info.wy, d_info.mf)
     smou = smouth(d_info.wx, d_info.wy)
     #Condition the ref
-    win = doref(ref, mm, d_info)
+    win = doref(ref, mm, d_info, use_fft)
 
 
     ssz = scene.shape
@@ -904,7 +920,7 @@ def reg(scene, ref, kernel_size, mf=0.08):
     # compute control point locations
 
     #start = time()
-    disp = cploc(scene, win, mm, smou, d_info)
+    disp = cploc(scene, win, mm, smou, d_info, use_fft, adf2_pad)
     #end = time()
     #dtime = end - start
     #print(f"Time for a scene destretch is {dtime:.3f}")
@@ -924,7 +940,7 @@ def reg(scene, ref, kernel_size, mf=0.08):
 
     return ans, disp, rdisp, d_info
 
-def reg_saved_window(scene, win, kernel_size, d_info, rdisp, mm, smou):
+def reg_saved_window(scene, win, kernel_size, d_info, rdisp, mm, smou, use_fft=False, adf2_pad=0.25):
     """
     Register scenes with respect to ref using kernel size and
     then returns the destretched scene, using precomputed window.
@@ -963,7 +979,7 @@ def reg_saved_window(scene, win, kernel_size, d_info, rdisp, mm, smou):
     # compute control point locations
 
     #start = time()
-    disp = cploc(scene, win, mm, smou, d_info)
+    disp = cploc(scene, win, mm, smou, d_info, use_fft, adf2_pad)
    # end = time()
   #  dtime = end - start
  #   print(f"Time for a scene destretch is {dtime:.3f}")
@@ -987,7 +1003,7 @@ def reg_saved_window(scene, win, kernel_size, d_info, rdisp, mm, smou):
     return ans, disp, rdisp, d_info
 
 
-def reg_loop(scene, ref, kernel_sizes, mf=0.08):
+def reg_loop(scene, ref, kernel_sizes, mf=0.08, use_fft=False, adf2_pad=0.25):
     """
     Parameters
     ----------
@@ -1011,7 +1027,7 @@ def reg_loop(scene, ref, kernel_sizes, mf=0.08):
     start = time()
 
     for el in kernel_sizes:
-        scene_temp, disp, rdisp, d_info = reg(scene_temp, ref, el)
+        scene_temp, disp, rdisp, d_info = reg(scene_temp, ref, el, mf, use_fft, adf2_pad)
 
     end = time()
     print(f"Total elapsed time {(end - start):.4f} seconds.")
@@ -1020,7 +1036,7 @@ def reg_loop(scene, ref, kernel_sizes, mf=0.08):
     return ans, disp, rdisp, d_info
 
 
-def reg_loop_series(scene, ref, kernel_sizes, mf=0.08):
+def reg_loop_series(scene, ref, kernel_sizes, mf=0.08, use_fft=False, adf2_pad=0.25):
     """
     Parameters
     ----------
@@ -1066,7 +1082,7 @@ def reg_loop_series(scene, ref, kernel_sizes, mf=0.08):
         smou = smouth(d_info.wx, d_info.wy)
         smou_d[kernel1] = smou
 
-        win = doref(ref, mm, d_info)
+        win = doref(ref, mm, d_info, use_fft)
         windows[kernel1] = win
         
     disp_l = list(rdisp.shape)
@@ -1081,7 +1097,9 @@ def reg_loop_series(scene, ref, kernel_sizes, mf=0.08):
                                                                      k, d_info_d[k],
                                                                      rdisp_d[k],
                                                                      mm_d[k],
-                                                                     smou_d[k])
+                                                                     smou_d[k],
+                                                                     use_fft,
+                                                                     adf2_pad)
         disp_all[:, :, :, t] = disp
 
     end = time()
