@@ -40,7 +40,7 @@ class Destretch_params():
 
 def plot_cps(ax_object, d_info):
     """
-    Plot the control points for the destretching on the destretched 
+    Plot the control points for the destretching on the destretched
     image
 
     Parameters
@@ -49,9 +49,9 @@ def plot_cps(ax_object, d_info):
         Axis object to have the control points plotted on;
     d_info : class Destretch_params
         Destretch Parameters;
-    
+
     Returns
-    ------- 
+    -------
     """
     return 0
 
@@ -82,7 +82,7 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
         y = np.array(xy[:, :, 1] + .5, order="F")
 
     else:
-      
+
         x = np.array(xy[0, :, :], order="F")
         y = np.array(xy[1, :, :], order="F")
 
@@ -103,7 +103,7 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
 
         s  = np.array(s, order="F")
         ss = s.astype(float)
-        
+
 
         ss00 = ss[x0, y0]
         ss01 = ss[x0, y1]
@@ -111,7 +111,7 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
         ssfy = fy * (ss01 - ss00 + (ss[x1, y1] - ss01) * fx - ssfx)
         ans  = ss00 + ssfx + ssfy
 
-        
+
     return ans
 
 def bilin_control_points(scene, rdisp, disp,
@@ -152,16 +152,16 @@ def bilin_control_points(scene, rdisp, disp,
 
 
 
-    
-    xy_ref_coordinates[0, :, :] = [np.linspace(0, (scene_nx-1), 
-                                               num=scene_ny, dtype="int") 
+
+    xy_ref_coordinates[0, :, :] = [np.linspace(0, (scene_nx-1),
+                                               num=scene_ny, dtype="int")
                                    for el in range(scene_nx)]
-    xy_ref_coordinates[1, :, :] = [np.zeros(scene_ny, dtype="int")+el 
+    xy_ref_coordinates[1, :, :] = [np.zeros(scene_ny, dtype="int")+el
                                    for el in range(scene_nx)]
-    
+
     xy_ref_coordinates = np.swapaxes(xy_ref_coordinates, 1, 2)
-   
-  
+
+
 
 
     dd = disp - rdisp
@@ -189,7 +189,7 @@ def bilin_control_points(scene, rdisp, disp,
         pl.show()
 
     xy_grid += xy_ref_coordinates
-    
+
     return (xy_grid)
 
 def bspline(scene, r, dd, d_info):
@@ -399,19 +399,22 @@ def mask(nx, ny):
 
 def smouth(nx, ny):
     """
+    Smouthing (apodizing) window to be applied to the 2D FFTs to
+    remove HF noise.
+
     WORKS! Checked against IDl
 
     Parameters
     ----------
-    nx : TYPE
-        DESCRIPTION.
-    ny : TYPE
-        DESCRIPTION.
+    nx : integer
+        Window size in x-direction.
+    ny : integer
+        Window size in y-direction.
 
     Returns
     -------
-    mm : TYPE
-        DESCRIPTION.
+    mm : ndarry [nx, ny]
+        smoothing mask.
 
     """
 
@@ -473,7 +476,7 @@ def doref(ref, mask, d_info):
             z = z - np.sum(z)/nelz
             #z=z-np.polyfit(z[0,  :], z[1:, ],1)
             win[:, :, i, j] = np.conj(np.fft.fft2(z*mask))
-            
+
             lx = lx + d_info.kx
             hx = hx + d_info.kx
         ly = ly + d_info.ky
@@ -504,7 +507,7 @@ def cploc(s, w, mask, smou, d_info):
     ans: TYPE
 
     """
-   
+
     ans = np.zeros((2, d_info.cpx, d_info.cpy), order="F")
 
     nels = d_info.wx * d_info.wy
@@ -523,34 +526,36 @@ def cploc(s, w, mask, smou, d_info):
             #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
             ss_fft = np.array(np.fft.fft2(ss), order="F")
             ss_fft = ss_fft  * w[:, :, i, j] * smou
-           
+
             ss_ifft = np.abs(np.fft.ifft2(ss_fft), order="F")
-            cc = np.roll(ss_ifft, (d_info.wx//2, d_info.wy//2),
-                         axis=(0, 1))
-            
+            cc = np.fft.fftshift(ss_ifft)
+            #cc = np.roll(ss_ifft, (d_info.wx//2, d_info.wy//2),
+            #             axis=(0, 1))
+
             cc = np.array(cc, order="F")
             mx  = np.amax(cc)
             loc = cc.argmax()
 
 
             ccsz = cc.shape
-            xmax = loc % ccsz[0]
-            ymax = loc // ccsz[0]
-
+            ymax = loc % ccsz[0]
+            xmax = loc // ccsz[0]
+            # breakpoint()
             #a more complicated interpolation
             #(from Niblack, W: An Introduction to Digital Image Processing, p 139.)
 
-            #if ((xmax*ymax > 0) and (xmax < (ccsz[0]-1))
-            #    and (ymax < (ccsz[1]-1))):
-            if (1 == 0):
-                denom = mx*2 - cc[xmax-1,ymax] - cc[xmax+1,ymax]
-                xfra = (xmax-.5) + (mx-cc[xmax-1,ymax])/denom
+            if ((xmax*ymax > 0) and (xmax < (ccsz[0]-1))
+                and (ymax < (ccsz[1]-1))):
+            #if (1 == 1):
+                denom = 2 * mx - cc[xmax-1,ymax] - cc[xmax+1,ymax]
+                xfra = (xmax-1/2) + (mx-cc[xmax-1,ymax])/denom
 
-                denom = mx*2 - cc[xmax,ymax-1] - cc[xmax,ymax+1]
-                yfra = (ymax-.5) + (mx-cc[xmax,ymax-1])/denom
+                denom = 2 * mx - cc[xmax,ymax-1] - cc[xmax,ymax+1]
+                yfra = (ymax-1/2) + (mx-cc[xmax,ymax-1])/denom
 
-                xmax=xfra
-                ymax=yfra
+                # breakpoint()
+                xmax=yfra
+                ymax=xfra
 
 
             ans[0,i,j] = lx + xmax
@@ -869,16 +874,18 @@ def reg(scene, ref, kernel_size):
     #Condition the ref
     win = doref(ref, mm, d_info)
 
-    
+
     ssz = scene.shape
     ans = np.zeros((ssz[0], ssz[1]), order="F")
-    
+
     # compute control point locations
 
-    start = time()
+    #start = time()
     disp = cploc(scene, win, mm, smou, d_info)
-    end = time()
-    breakpoint()
+    #end = time()
+    #dtime = end - start
+    #print(f"Time for a scene destretch is {dtime:.3f}")
+
     #disp = repair(rdisp, disp, d_info) # optional repair
     #rms = sqrt(total((rdisp - disp)^2)/n_elements(rdisp))
     #print, 'rms =', rms
@@ -889,18 +896,76 @@ def reg(scene, ref, kernel_size):
     ans = x
         #    win = doref (x, mm); optional update of window
 
-   
+#    print(f"Total destr took: {(end - start):.5f} seconds for kernel"
+ #         +f"of size {kernel_size} px.")
 
-    breakpoint()
-    print(f"Total destr took: {end - start} seconds for kernel"
-          +f"of size {kernel_size} px.")
-    
     return ans, disp, rdisp, d_info
+
+def reg_saved_window(scene, win, kernel_size, d_info, rdisp, mm, smou):
+    """
+    Register scenes with respect to ref using kernel size and
+    then returns the destretched scene, using precomputed window.
+
+    Parameters
+    ----------
+    scene : [nx, ny] [nx, ny, nf]
+        Scene to be registered
+    win: [nx, ny, nf]
+        FFT of the reference scene (computed with doref)
+    kernel_size : int
+       Kernel size (otherwise unused)!!!!!
+
+    Returns
+    -------
+    ans : [nx, ny]
+        Destreched scene.
+    disp : ndarray (kx, ky)
+        Control point locations
+    rdisp : ndarray (kx, ky)
+        Reference control point locations
+
+    """
+    kernel = np.zeros((kernel_size, kernel_size))
+
+    # d_info, rdisp = mkcps(ref, kernel)
+    # mm = mask(d_info.wx, d_info.wy)
+    # smou = smouth(d_info.wx, d_info.wy)
+    #Condition the ref
+    #win = doref(ref, mm, d_info)
+
+
+    ssz = scene.shape
+    ans = np.zeros((ssz[0], ssz[1]), order="F")
+
+    # compute control point locations
+
+    #start = time()
+    disp = cploc(scene, win, mm, smou, d_info)
+   # end = time()
+  #  dtime = end - start
+ #   print(f"Time for a scene destretch is {dtime:.3f}")
+
+    #disp = repair(rdisp, disp, d_info) # optional repair
+    #rms = sqrt(total((rdisp - disp)^2)/n_elements(rdisp))
+    #print, 'rms =', rms
+    #mdisp = np.mean(rdisp-disp,axis=(1, 2))
+    #disp[0, :, :] += mdisp[0]
+    #disp[1, :, :] += mdisp[1]
+    x = doreg(scene, rdisp, disp, d_info)
+    ans = x
+        #    win = doref (x, mm); optional update of window
+
+
+
+
+    #print(f"Total destr took: {(end - start):.5f} seconds for kernel"
+    #      +f"of size {kernel_size} px.")
+
+    return ans, disp, rdisp, d_info
+
 
 def reg_loop(scene, ref, kernel_sizes):
     """
-
-
     Parameters
     ----------
     scene : ndarray (nx, ny)
@@ -921,13 +986,78 @@ def reg_loop(scene, ref, kernel_sizes):
 
     scene_temp = scene
     start = time()
-   
+
     for el in kernel_sizes:
         scene_temp, disp, rdisp, d_info = reg(scene_temp, ref, el)
 
     end = time()
-    print(f"Total elapsed time {end - start} seconds.")
+    print(f"Total elapsed time {(end - start):.4f} seconds.")
     ans = scene_temp
+
+    return ans, disp, rdisp, d_info
+
+
+def reg_loop_series(scene, ref, kernel_sizes):
+    """
+    Parameters
+    ----------
+    scene : ndarray (nx, ny, nt)
+        Image to be destretched
+    ref : ndarray (nx, ny)
+        Reference image
+    kernel_sizes : ndarray (n_kernels)
+        Sizes of the consecutive kernels to be applied
+
+    Returns
+    -------
+    ans : ndarray (nx, ny)
+        Destretched scene
+    d_info: Destretch class
+        Parameters of the destretching
+    """
+
+    num_scenes = scene.shape[2]
+    scene_d = np.zeros((scene.shape))
+
+    start = time()
+    num_kernels = len(kernel_sizes)
+    windows = {}
+    d_info_d = {}
+    mm_d = {}
+    smou_d = {}
+    rdisp_d = {}
+
+    # d_info, rdisp = mkcps(ref, kernel)
+    # mm = mask(d_info.wx, d_info.wy)
+    # smou = smouth(d_info.wx, d_info.wy)
+    for kernel1 in kernel_sizes:
+        kernel = np.zeros((kernel1, kernel1))
+
+        d_info, rdisp = mkcps(ref, kernel)
+        d_info_d[kernel1] = d_info
+        rdisp_d[kernel1] = rdisp
+
+        mm = mask(d_info.wx, d_info.wy)
+        mm_d[kernel1] = mm
+
+        smou = smouth(d_info.wx, d_info.wy)
+        smou_d[kernel1] = smou
+
+        win = doref(ref, mm, d_info)
+        windows[kernel1] = win
+
+    for t in range(num_scenes):
+        for k in kernel_sizes:
+            scene_d[:, :, t], disp, rdisp, d_info = reg_saved_window(scene[:, :, t],
+                                                                     windows[k],
+                                                                     k, d_info_d[k],
+                                                                     rdisp_d[k],
+                                                                     mm_d[k],
+                                                                     smou_d[k])
+
+    end = time()
+    print(f"Total elapsed time {(end - start):.4f} seconds.")
+    ans = scene_d
 
     return ans, disp, rdisp, d_info
 
