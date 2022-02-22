@@ -39,7 +39,6 @@ def interp_1D_spline(grid, data):
     b = b1 - b2
 
     second_der_t = np.linalg.solve(A, b)
-    print(second_der_t)
 
     second_der = np.zeros(len_grid)
     second_der[1:-1] = second_der_t
@@ -81,6 +80,26 @@ def interp_1D_spline(grid, data):
 
     return interpolator_1D_spline
 
+
+def interp_2D_spline(x_grid, y_grid, data):
+
+    num_x = x_grid.shape[0]
+    num_y = y_grid.shape[0]
+
+    #Create an array of num_x splines
+
+    list_splines = [interp_1D_spline(x_grid, el) for el in data]
+
+    def interpolator_2D_spline(loc, grid=y_grid, data=data, list_splines=list_splines):
+
+        new_data = [el(loc[0]) for el in list_splines]
+        interpolator = interp_1D_spline(grid, new_data)
+        y = interpolator(loc[1])
+
+        return y
+
+    return interpolator_2D_spline
+
 def cubic_fn(x, C):
     return C[0] * x**3 + C[1] * x**2 + C[2] * x**1 + C[3]
 
@@ -95,9 +114,60 @@ if __name__ == "__main__":
 
     import matplotlib.pyplot as pl
 
-    pl.plot(x, y, 'ro')
+
     pl.plot(x_tight, y_true, 'b--', label="True")
     pl.plot(x_tight, y_interp, 'g.--', label="Interp")
+    pl.plot(x, y, 'ro', markersize=12, label="Input data")
     pl.grid(alpha=0.5)
     pl.legend()
+    pl.show()
+
+    ## Test 2D interpolation now
+
+    def gauss(x, y, x0, sigma):
+        mu = np.sqrt(x**2 + y ** 2)
+        return  np.exp(-(mu - x0) ** 2 / (2 * sigma ** 2))
+
+    x, y = np.meshgrid(np.linspace(-2, 2, num=11), np.linspace(-2, 2, num=11))
+
+    x_grid = x[0]
+    y_grid = y[:, 0]
+
+    sigma = 0.8
+    mu = 0
+
+    z = gauss(x, y, mu, sigma)
+
+    f = interp_2D_spline(x_grid, y_grid, z)
+    num_points = 200
+    x_fine, y_fine = np.meshgrid(np.linspace(-1.99, 1.99, num=num_points),
+                                 np.linspace(-1.99, 1.99, num=num_points))
+
+    x_grid_fine = x_fine[0]
+    y_grid_fine = y_fine[:, 0]
+    z_true = gauss(x_fine, y_fine, mu, sigma)
+
+    pl.imshow(z_true, origin="lower", cmap = "gray", extent=[-2, 2, -2, 2])
+    pl.plot(x.flatten(), y.flatten(), 'ro')
+    pl.show()
+    z_interp = np.array([f([el, y_grid_fine[100]]) for el in x_grid_fine])
+
+    pl.plot(x_grid_fine, z_interp, 'r.--', label="Interpolation")
+    pl.plot(x_grid_fine, z_true[:, int(num_points/2)], 'g--', label="True")
+    pl.plot(x_grid, z[:, 5], 'bo', label="Original data")
+    pl.grid(alpha=0.5)
+    pl.legend()
+    pl.show()
+
+    zz_interp = np.zeros((num_points, num_points))
+    for ii in range(0, num_points):
+        for jj in range(0, num_points):
+            print(ii, jj)
+            zz_interp[ii, jj] = f([x_grid_fine[ii], y_grid_fine[jj]])
+
+    pl.title("Relative error")
+    im1 = pl.imshow(np.abs(z_true - zz_interp) / z_true, vmax=0.1, origin="lower",
+                    cmap="gray", extent=[-2, 2, -2, 2])
+    pl.plot(x.flatten(), y.flatten(), 'ro')
+    pl.colorbar(im1)
     pl.show()
