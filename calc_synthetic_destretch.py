@@ -247,7 +247,7 @@ def syn_destretch_wrapper(num_repeats=100,
     rng = np.random.default_rng()
     shifts = rng.random(size=(2, num_repeats)) * sft_range * 2 - sft_range
     
-    kerns = [24,32,48,64,96]
+    kerns = [24,32,48,64,96,128]
 #    kerns = [30, 40, 50, 60, 70, 80]
     apods = (np.arange(25) + 1)*0.01
     dotradii = np.arange(15) + 1
@@ -374,8 +374,8 @@ def syn_destretch_wrapper(num_repeats=100,
 
 
 if __name__ == "__main__":
-    num_repeats = 10
-    sft_range = 2
+    num_repeats = 100
+    sft_range = 0.5
     vary_kernels = 1
     vary_apod = 0
     vary_dotrad = 0

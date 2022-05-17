@@ -537,7 +537,7 @@ def cploc(s, w, apod_mask, smou, d_info, use_fft=False, adf2_pad=0.25):
 
 #    pad_x = int(d_info.kx * adf2_pad)
 #    pad_y = int(d_info.ky * adf2_pad)
-    pad_x, pad_y = 3, 3
+    pad_x, pad_y = 2, 2
 
     ly = d_info.by
     hy = ly + d_info.wy
@@ -561,11 +561,16 @@ def cploc(s, w, apod_mask, smou, d_info, use_fft=False, adf2_pad=0.25):
                 cc = np.array(cc, order="F")
             else:
                 ss = s[lx-pad_x:hx+pad_x, ly-pad_y:hy+pad_y]
-                cc = np.zeros((2*pad_x + 1, 2*pad_y + 1), order="C")
-                for n in range(2*pad_y + 1):
-                    for m in range(2*pad_x + 1):
+                cc = np.zeros((2*pad_x + 1, 2*pad_y + 1))
+                for m in range(2*pad_x + 1):
+                    for n in range(2*pad_y + 1):
                         cc[m, n] = -np.sum(np.abs(ss[m:m+d_info.wx, n:n+d_info.wy]
                                                  - w[:, :, i, j]))**2
+#                cc4 = np.zeros((2*pad_x + 1, 2*pad_y + 1, d_info.wx, d_info.wy))
+#                for m in range(2*pad_x + 1):
+#                    for n in range(2*pad_y + 1):
+#                        cc4[m, n] = ss[m:m+d_info.wx, n:n+d_info.wy]
+#                cc = -np.sum(np.abs(cc4 - w[:, :, i, j]), (2, 3))**2
             mx  = np.amax(cc)
             loc = cc.argmax()
 
