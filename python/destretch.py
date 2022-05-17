@@ -315,68 +315,122 @@ def patch(compx, compy, s, t):
 
     return ans
 
-def extend(r, d):
-    """
-    Extend reference and actual displacements to cover whole
-    scene
+
+def extend(cntrlpts_ref, cntrlpts_actl, num_extend_pts=3):
+    """Extend map of measured control points and displacements.
+
+    Extend the maps of reference and actual control points to cover area
+    outside of measured area. This is necessary to create a smooth displacement
+    surface covering the whole scene
 
     Parameters
     ----------
-    r : TYPE
-        reference displacement of points
-    d : TYPE
-        actual displacements of points
-
+    cntrlpts_ref : TYPE
+        reference control points
+    cntrlpts_actl : TYPE
+        actual displaced position of control points
 
     Returns
     -------
-    rd : TYPE
-        DESCRIPTION.
-    sd : TYPE
-        DESCRIPTION.
+    cntrlpts_ref_extnd : TYPE
+        reference control points, extended by the appropriate border
+    cntrlpts_actl_extnd : TYPE
+        actual displaced position of control points, also extended
 
     """
+    # if true, the extended border of the actual displacements will be filled
+    #     with the same displacement values as at the corresponding edge.
+    # if false, displacements in the extended border will be set to zero,
+    #     but that may cause discontinuities in the displacement surface.
+    extend_with_offsets = True
 
-    dsz = d.shape
-    ns  = dsz[0] + 6
-    nt  = dsz[1] + 6
+    # set the number of additional control points around the edge of the array
+    # by which to extend the displacement map
+    # num_extend_pts = 3
 
-    rd = np.zeros((ns, nt), order="F")
-    dif = r[1, 0] - r[0, 0]
-    zro = r[0, 0] - 3*dif
-    z   = np.arange(ns)*dif + zro
-    for i in range(nt):
-        rd[:, i] = z
+    # define the size of the extended arrays to generate
+    dsz     = cntrlpts_actl.shape
+    disp_nx = dsz[0] + num_extend_pts * 2
+    disp_ny = dsz[1] + num_extend_pts * 2
 
-    sd = np.zeros((ns, nt), order="F")
-    sd[3:ns-3, 3:nt-3] = d -r
+    # First, create the entended array of control points
+    cntrlpts_ref_extnd = np.zeros((disp_nx, disp_ny), order="F")
 
-    x = sd[:, 3]
-    sd[:, 0] = x
-    sd[:, 1] = x
-    sd[:, 2] = x
+    # as currently written, one coordinate of the control point locations are
+    # passed into this routine at a time. So the either the values will be varying
+    # in the x-direction or the y-direction
+    # We compare the differences of the change in values in the two directions
+    # to identify which of the two cases we have
+    step_x = cntrlpts_ref[1, 0] - cntrlpts_ref[0, 0]
+    step_y = cntrlpts_ref[0, 1] - cntrlpts_ref[0, 0]
 
-    x = sd[: ,nt-4]
-    sd[:, nt-3] = x
-    sd[:, nt-2] = x
-    sd[:, nt-1] = x
+    # generally, the input arrays will contain the x- or y- coordinates of the control
+    # points, so the values will only be varying in one direction if those are laid out
+    # on a rectangular grid. In the other direction, the increments between points will 
+    # be zero. So we just look to see in which direction is the increment bigger and 
+    # use that as the step size to use for the extension.
+    # But really it would be better to have the direction to use to define the step size 
+    # be defined as an input, or have the step size be an input parameter.
+    # This might be useful if the step size is not constant, or changes in both directions
+    # simulataneously
+    
+    # if step_y is greater and non-zero, we'll use that to fill the rows
+    if step_x > step_y:
+        # define the starting point, which is num_extpts times the step size before the input position
+        start_pt    = cntrlpts_ref[0, 0] - num_extend_pts * step_x
+        # generate a new array of evenly spaced control points
+        new_steps   = np.arange(disp_nx) * step_x + start_pt
+        # replicate that array of control points into all rows of the control point array
+        for i in range(disp_ny):
+            cntrlpts_ref_extnd[:, i] = new_steps
+    # if step_y is greater and non-zero, we'll use that to fill the columns
+    else:
+        # define the starting point, which is num_extpts times the step size before the input position
+        start_pt    = cntrlpts_ref[0, 0] - num_extend_pts * step_y
+        # generate a new array of evenly spaced control points
+        new_steps   = np.arange(disp_ny) * step_y + start_pt
+        # replicate that array of control points into all rows of the control point array
+        for i in range(disp_nx):
+            cntrlpts_ref_extnd[i, :] = new_steps
 
-    sd = np.transpose(sd)
+    # Next create an extended array of the displaced positions of the control points
+    # and populate the center portion with the measured (input) offsets
 
-    x = sd[:, 3]
-    sd[:, 0] = x
-    sd[:, 1] = x
-    sd[:, 2] = x
+    cntrlpts_actl_extnd = np.zeros((disp_nx, disp_ny), order="F")
+    cntrlpts_actl_extnd[num_extend_pts:disp_nx-num_extend_pts, num_extend_pts:disp_ny-num_extend_pts] = cntrlpts_actl - cntrlpts_ref
 
-    x = sd[: ,ns-4]
-    sd[:, ns-3] = x
-    sd[:, ns-2] = x
-    sd[:, ns-1] = x
+    # if requested, replicate the edges of the displacement array into the extended boundaries
+    if extend_with_offsets is True:
+        # extend displacement array by replicating the values of the displacements along the
+        #   borders of measured array. This ensures some consistencies in the values
 
-    sd = np.transpose(sd)
-    sd = sd + rd
+        # take the bottom row of measured offset and replicate it into the extended array of offsets below
+        # note: this could be done without a for loop...
+        x = cntrlpts_actl_extnd[:, num_extend_pts]
+        for i in range(num_extend_pts):
+            cntrlpts_actl_extnd[:, i] = x
 
-    return rd, sd
+        # take the top row of measured offset and replicate it into the extended array of offsets above
+        x = cntrlpts_actl_extnd[:, disp_ny - num_extend_pts - 1]
+        for i in range(disp_ny - num_extend_pts, disp_ny):
+            cntrlpts_actl_extnd[:, i] = x
+
+        # take the left column of measured offset and replicate it into the extended array of offsets to the left
+        x = cntrlpts_actl_extnd[num_extend_pts, :]
+        for i in range(num_extend_pts):
+            cntrlpts_actl_extnd[i, :] = x
+
+        # take the left column of measured offset and replicate it into the extended array of offsets to the left
+        x = cntrlpts_actl_extnd[disp_nx - num_extend_pts - 1, :]
+        for i in range(disp_nx - num_extend_pts, disp_ny):
+            cntrlpts_actl_extnd[i, :] = x
+        print(cntrlpts_actl_extnd[2, :])
+
+    # now add the control point positions back into the displacement array
+    cntrlpts_actl_extnd = cntrlpts_actl_extnd + cntrlpts_ref_extnd
+
+    return cntrlpts_ref_extnd, cntrlpts_actl_extnd
+
 
 def apod_mask(nx, ny, fraction=0.08):
     """
