@@ -592,7 +592,7 @@ def doref(ref_image, apod_mask, destr_info, use_fft=False):
 # **********************************************************
 # ******************** FUNCTION: controlpoint_offsets  *******************
 # **********************************************************
-def controlpoint_offsets(scene, subfield_fftconj, apod_mask, lowpass_filter, destr_info, , adf2_pad=0.25):
+def controlpoint_offsets(scene, subfield_fftconj, apod_mask, lowpass_filter, destr_info, adf2_pad=0.25):
 #def cploc(s, w, apod_mask, smou, d_info, use_fft=False, adf2_pad=0.25):
     """
     Locate control points
@@ -653,20 +653,6 @@ def controlpoint_offsets(scene, subfield_fftconj, apod_mask, lowpass_filter, des
                 cc = np.fft.fftshift(ss_ifft)
                 cc = np.array(cc, order="F")
 
-            else:
-
-                #cross correlation, inline
-                ss = s[lx:hx, ly:hy]
-                #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
-                ss_fft = np.array(np.fft.fft2(ss), order="F")
-                ss_fft = ss_fft  * w[:, :, i, j] #* smou
-
-                ss_ifft = np.abs(np.fft.ifft2(ss_fft), order="F")
-                cc = np.fft.fftshift(ss_ifft)
-                #cc = np.roll(ss_ifft, (d_info.wx//2, d_info.wy//2),
-                #             axis=(0, 1))
-
-                cc = np.array(cc, order="F")
             else:
                 #scene_subarr = scene[lx-pad_x:hx+pad_x, ly-pad_y:hy+pad_y]
                 scene_subarr = scene[sub_strt_x-pad_x:sub_end_x+pad_x, sub_strt_y-pad_y:sub_end_x+pad_y]
