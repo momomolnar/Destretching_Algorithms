@@ -158,9 +158,6 @@ def bilin_control_points(scene, rdisp, disp,
     xy_ref_coordinates1 = np.zeros((2, scene_nx, scene_ny), order="F")
     xy_ref_coordinates = np.zeros((2, scene_nx, scene_ny), order="F")
 
-
-
-
     xy_ref_coordinates[0, :, :] = [np.linspace(0, (scene_nx-1),
                                                num=scene_ny, dtype="int")
                                    for el in range(scene_nx)]
@@ -169,11 +166,7 @@ def bilin_control_points(scene, rdisp, disp,
 
     xy_ref_coordinates = np.swapaxes(xy_ref_coordinates, 1, 2)
 
-
-
-
     dd = disp - rdisp
-
 
     interp_x = RectBivariateSpline(cp_x_coords, cp_y_coords, dd[0, :, :])
     interp_y = RectBivariateSpline(cp_x_coords, cp_y_coords, dd[1, :, :])
@@ -525,49 +518,76 @@ def smouth(nx, ny):
 
     return mm
 
-def doref(ref, apod_mask, d_info, use_fft=False):
+def doref(ref_image, apod_mask, destr_info, use_fft=False):
     """
     Setup reference window
 
     Parameters
     ----------
-    ref : array (*, *)
-        reference image
-    mask : TYPE
+    ref : a 2-dimensional array (L x M) containing the reference image
+            against which the scene should be registered
+    apod_mask : apodization mask to be applied to subfield image 
         mask
     d_info : TYPE
         Destretch_info.
 
     Returns
     -------
-    win: array (*, *)
+    subfields_fftconj: array (kx, ky, cp_numx, cp_numy)
         Reorganized window
     """
 
-    win = np.zeros((d_info.wx, d_info.wy, d_info.cpx, d_info.cpy),
+    subfields_fftconj = np.zeros((destr_info.wx, destr_info.wy, destr_info.cpx, destr_info.cpy),
                    dtype="complex", order="F")
-    nelz = d_info.wx * d_info.wy
-    ly = d_info.by
-    hy = ly + d_info.wy
-    for j in range(0, d_info.cpy):
-        lx = d_info.bx
-        hx = lx + d_info.wx
-        for i in range(0, d_info.cpx):
-            z = ref[lx:hx, ly:hy]
-            z = z - np.sum(z)/nelz
-            #z=z-np.polyfit(z[0,  :], z[1:, ],1)
-            if use_fft:
-                win[:, :, i, j] = np.conj(np.fft.fft2(z*apod_mask))
-            else:
-                win[:, :, i, j] = z
 
-            lx = lx + d_info.kx
-            hx = hx + d_info.kx
-        ly = ly + d_info.ky
-        hy = hy + d_info.ky
+    # number of elements in each subfield
+    nelz = destr_info.wx * destr_info.wy
+    
+    # from previous method for computing subfields - see comment below for better approach
+    #sub_strt_y = destr_info.by
+    #sub_end_y  = sub_strt_y + destr_info.wy - 1
+    
+    for j in range(0, destr_info.cpy):
+        #sub_strt_x = destr_info.bx
+        #sub_end_x  = sub_strt_x + destr_info.wx - 1
+
+        for i in range(0, destr_info.cpx):
+            # instead of incrementing the subarray positions with a fixed step
+            # size, we should instead take the reference positions 
+            # from the predefined control points and extract 
+            # the appropriate sized subarray around those coordinates
+            # This will be more flexible going forward, especially considering 
+            # the possibility of irregular sampling
+            # take the reference position and define the start of the box as 
+            # half the kernel size to the left (below), and then add the kernel size
+            # to get the right (top) boundary
+            sub_strt_x  = destr_info.rcps[0,i,j] - destr_info.kx/2
+            sub_end_x   = sub_strt_x + destr_info.kx - 1
+
+            sub_strt_y  = destr_info.rcps[1,i,j] - destr_info.ky/2
+            sub_end_y   = sub_strt_y + destr_info.ky - 1
+            
+            subcut = ref_image[sub_strt_y:sub_end_y+1, sub_strt_y:sub_end_y+1]
+            
+            if destr_info.subfield_correction == 'mean_subtraction' :
+                subcut -= np.sum(subcut)/nelz
+            if destr_info.subfield_correction == 'plane_subtraction' :
+                fit_degree = 1
+                subcut_fit = np.polyfit(z[0, :], z[1:, ], 1)
+                subcut    -= subcut_fit
+                
+             # store the complex conjugate of the FFT of each reference subfield 
+             #    (for later calculation of the cross correlation with the target subfield)
+            subfields_fftconj[:, :, i, j] = np.conj(np.fft.fft2(z * apod_mask))
+            
+            #sub_strt_y = sub_strt_y + destr_info.kx
+            #sub_end_y = sub_end_y + destr_info.kx
+        #sub_strt_y = sub_strt_y + destr_info.ky
+        #sub_end_y = sub_end_y + destr_info.ky
 
 
-    return win
+    return subfields_fftconj
+
 
 def cploc(s, w, apod_mask, smou, d_info, use_fft=False, adf2_pad=0.25):
     """
