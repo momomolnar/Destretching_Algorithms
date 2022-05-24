@@ -775,7 +775,7 @@ def doreg(scene, r, d, d_info):
 
     return ans
 
-def measure_destr_properties(scene1, scene2):
+def measure_destr_properties(scene1, scene2, destr_info):
     """
     Measure the suitable parameters for the destretch based on the two provided
     images based on:
@@ -791,12 +791,12 @@ def measure_destr_properties(scene1, scene2):
             Image 2
 
     Output:
-        -- d_info -- Destretch_class
+        -- destr_info -- Destretch_class
             Suggested properties of the destretch
     """
 
 
-    return d_info
+    return destr_info
 
 def mkcps_nonuniform(ref, kernel):
 
@@ -809,15 +809,24 @@ def mkcps_overlapping(ref, kernel, box_size):
     """
     return d_info, rcps
 
-def mkcps(ref, kernel, mf=0.08):
+# *************************************************************************
+# ********************  FUNCTION: destr_control_points  *******************
+# ********************            nee mkcps             *******************
+# *************************************************************************
+def destr_control_points(reference, kernel, destr_info, border_offset, spacing_ratio, mf=0.08):
+#def mkcps(ref, kernel, mf=0.08):
     """
+    this function defines a regularly spaced grid on control points, which are
+       the central pixel positions of each subfield for the destretching local 
+       offset determination.
+       
     Seems to work
     Choose control point locations in the reference
 
     Parameters
     ----------
-    ref : TYPE
-        Reference scene
+    reference : TYPE
+        Reference scene - passed only to define size of full reference image
     kernel : TYPE
         Kernel props
 
@@ -830,46 +839,111 @@ def mkcps(ref, kernel, mf=0.08):
         DESCRIPTION.
 
     """
+    define_cntl_pts_orig = 0
+    
+    destr_info = Destretch_params(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+    # determine the number of pixels in the kernel
     ksz = kernel.shape
-    kx = ksz[0]
-    ky = ksz[1]
+    destr_info.kx = ksz[0]
+    destr_info.ky = ksz[1]
 
+    # determine the number of pixels in the reference image
+    # the assumption is that the reference is a 2D array, so we only need the x- and y-dimensions
+    rsz = reference.shape
+    destr_info.ref_sz_x  = rsz[0]
+    destr_info.ref_sz_y  = rsz[1]
 
-    a = 20./np.sqrt(2.)
-    b = 20./np.log(2.)
+    # [wx,wy] define the size of a border around the edge of the image, to add an additional 
+    #     buffer area in which to avoid placing the control points.
+    # The border_offset input variable defines this border area in relation to the kernel size,
+    #     but maybe it's better to define it as an absolute number of pixels?
+    destr_info.border_x    = int(border_offset)
+    destr_info.border_y    = int(border_offset)
+    # make sure [border_x,border_y] is divisible by 2
+    if (destr_info.border_x % 2):
+        destr_info.border_x = int(destr_info.border_x + 1)
+    if (destr_info.border_y % 2):
+        destr_info.border_y = int(destr_info.border_y + 1)
+    destr_info.border_x  += destr_info.border_x % 1
+            
+    if destr_info.debug >= 2 : print('Border Size = ',destr_info.border_x, ' x ', destr_info.border_y)
+    if destr_info.debug >= 2 : print('Kernel Size = ',destr_info.kx, ' x ', destr_info.ky)
+    
+    if define_cntl_pts_orig:
+        cpx = int((destr_info.ref_sz_x - destr_info.wx + destr_info.kx)//destr_info.kx)
+        cpy = int((destr_info.ref_sz_y - destr_info.wy + destr_info.ky)//destr_info.ky)
+        # old way of defining the control points by looping through x and way and 
+        # adding a fixed offset to the previously defined control point
 
-    wx = int(kx*2)
-    wy = int(ky*2)
+        destr_info.wx = int(destr_info.kx * 2)
+        destr_info.wy = int(destr_info.ky * 2)
 
-    if (wx % 2):
-        wx = int(wx + 1)
-    if (wy % 2):
-        wy = int(wy + 1)
+        if (destr_info.wx % 2):
+            destr_info.wx = int(destr_info.wx + 1)
+        if (destr_info.wy % 2):
+            destr_info.wy = int(destr_info.wy + 1)
 
-    rsz = ref.shape
-    cpx = int((rsz[0] - wx + kx)//kx)
-    cpy = int((rsz[1] - wy + ky)//ky)
+        destr_info.bx = int(((destr_info.ref_sz_x - destr_info.wx + destr_info.kx) % destr_info.kx)/2)
+        destr_info.by = int(((destr_info.ref_sz_y - destr_info.wy + destr_info.ky) % destr_info.ky)/2)
+        rcps = np.zeros((2, cpx, cpy), order="F")
 
-    bx = int(((rsz[0] - wx + kx) % kx)/2)
-    by = int(((rsz[1] - wy + ky) % ky)/2)
-    rcps = np.zeros((2, cpx, cpy), order="F")
-    ly = by
-    hy = ly + wy
-    for j in range(0, cpy):
-        lx = bx
-        hx = lx + wx
-        for i in range(0, cpx):
-            rcps[0, i, j] = (lx + hx)/2
-            rcps[1, i, j] = (ly + hy)/2
-            lx = lx + kx
-            hx = hx + kx
+        ly = destr_info.by
+        hy = ly + destr_info.wy
+        for j in range(0, cpy):
+            lx = destr_info.bx
+            hx = lx + destr_info.wx
+            for i in range(0, cpx):
+                rcps[0, i, j] = (lx + hx)/2
+                rcps[1, i, j] = (ly + hy)/2
+                lx = lx + destr_info.kx
+                hx = hx + destr_info.kx
 
-        ly = ly + ky
-        hy = hy + ky
+            ly = ly + destr_info.ky
+            hy = hy + destr_info.ky
+    else:
+        # the control points must start and end at least 1/2 kernel width away from the edges of the array
+        # So that means that the allowable range of pixels available for control points 
+        #     is reduced by (at minimum) one kernel width
+        # it is also reduced by the size of the extra border on each side
+        allowable_range_x = destr_info.ref_sz_x - destr_info.kx - (destr_info.border_x * 2)
+        allowable_range_y = destr_info.ref_sz_y - destr_info.ky - (destr_info.border_y * 2)
+        
+        # how far apart should the sub-array control points be placed, in units of the kernel width
+        # set the spacing between subarrays, making sure it is divisible by 2 (just because...)
+        destr_info.spacing_x  = int(destr_info.kx * spacing_ratio)
+        destr_info.spacing_y  = int(destr_info.ky * spacing_ratio)
+        destr_info.spacing_x += destr_info.spacing_x % 2
+        destr_info.spacing_y += destr_info.spacing_y % 2
 
-    d_info = Destretch_params(kx, ky, wx, wy, bx, by, cpx, cpy, mf)
+        # divide the number of allowable pixels by the control points, round down to nearest integer
+        num_grid_x        = int(allowable_range_x / destr_info.spacing_x) + 1
+        num_grid_y        = int(allowable_range_y / destr_info.spacing_y) + 1
+        destr_info.cpx    = num_grid_x
+        destr_info.cpy    = num_grid_y
+        
+        # how far apart will the first and last control points be, in each axis
+        total_range_x     = destr_info.spacing_x * (num_grid_x - 1)
+        total_range_y     = destr_info.spacing_y * (num_grid_y - 1)
+        # the total range will be less than the maximum possible range, in most cases
+        # so allocate some of those extra pixels to each border
+        destr_info.bx     = np.round((allowable_range_x - total_range_x + destr_info.kx)/2.)
+        destr_info.by     = np.round((allowable_range_y - total_range_y + destr_info.ky)/2.)
+        
+        if destr_info.debug >= 2: print('Number of Control Points = ',num_grid_x, ' x ', num_grid_y)
+        if destr_info.debug >= 2: print('Number of Border Pixels = ',destr_info.bx, ' x ', destr_info.by)
+        if destr_info.debug >= 3: print('allowable range,grid spacing x, num grid x, total range x, start pos x',
+                                          allowable_range_x,destr_info.spacing_x,num_grid_x,total_range_x,destr_info.bx)
 
-    return d_info, rcps
+        rcps              = np.zeros([2, destr_info.cpx, destr_info.cpy])
+        rcps[0,:,:]       = np.transpose(np.tile(np.arange(destr_info.cpx) * destr_info.spacing_x + destr_info.bx, (destr_info.cpy, 1)))
+        rcps[1,:,:]       =              np.tile(np.arange(destr_info.cpy) * destr_info.spacing_y + destr_info.by, (destr_info.cpx, 1))
+                                           
+
+    return destr_info, rcps
+
+# ********************  END: destr_control_points  *******************
+
 
 def setup(scene, ref, kernel, d_info):
 
