@@ -9,6 +9,7 @@ reg.pro by Phil Wiborg and Thomas Rimmele in reg.pro
 @author: molnarad
 """
 
+from asyncio import selector_events
 import numpy as np
 import scipy as sp
 from scipy import signal as signal
@@ -65,19 +66,19 @@ def plot_cps(ax_object, d_info):
     """
     return 0
 
-def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
+def bilin_values_scene(scene, coords_new, destr_info, nearest_neighbor = False):
     """
     Bilinear interpolation (resampling)
     of the scene s at coordinates xy
 
     Parameters
     ----------
-    s : ndarray (nx, ny)
+    scene : ndarray (nx, ny)
         Scene
-    xy : ndarray (2, nx, ny)
+    coords_new : ndarray (2, nx, ny)
         coordinates of the pixels of the output image
         on the input image (at which to interpolate the scene)
-    d_info: class Destretch_Params
+    destr_info: class Destretch_Params
         Destretch parameters
 
     Returns
@@ -88,17 +89,17 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
     """
 
     if nearest_neighbor == True:
-        x = np.array(xy[:, :, 0] + .5, order="F")
-        y = np.array(xy[:, :, 1] + .5, order="F")
+        x = np.array(coords_new[:, :, 0] + .5, order="F")
+        y = np.array(coords_new[:, :, 1] + .5, order="F")
+        
+        scene_interp = scene[x, y]
 
     else:
+        x = np.array(coords_new[0, :, :], order="F")
+        y = np.array(coords_new[1, :, :], order="F")
 
-        x = np.array(xy[0, :, :], order="F")
-        y = np.array(xy[1, :, :], order="F")
-
-        nx = s.shape[0]
-        ny = s.shape[1]
-
+        # need to limit output coordinates so that interpolation calculations
+        # don't go out of bounds (i.e. we add 1 to x and y coordinates below)
         x = np.clip(x, 0, x.shape[0]-2)
         y = np.clip(y, 0, y.shape[1]-2)
 
@@ -107,22 +108,19 @@ def bilin_values_scene(s, xy, d_info, nearest_neighbor = False):
         y0 = (y).astype(int)
         y1 = (y+1).astype(int)
 
-
         fx = x % 1.
         fy = y % 1.
 
-        s  = np.array(s, order="F")
-        ss = s.astype(float)
+        scene  = np.array(selector_events, order="F")
+        scene_float = s.astype(scene)
 
+        ss00 = scene_float[x0, y0]
+        ss01 = scene_float[x0, y1]
+        ssfx00 =                (scene_float[x1, y0] - ss00) * fx
+        ssfy01 = (ss01 - ss00 + (scene_float[x1, y1] - ss01) * fx - ssfx00) * fy
+        scene_interp  = ss00 + ssfx00 + ssfy01
 
-        ss00 = ss[x0, y0]
-        ss01 = ss[x0, y1]
-        ssfx = (ss[x1, y0] - ss00) * fx
-        ssfy = fy * (ss01 - ss00 + (ss[x1, y1] - ss01) * fx - ssfx)
-        ans  = ss00 + ssfx + ssfy
-
-
-    return ans
+    return scene_interp
 
 def bilin_control_points(scene, rdisp, disp,
                          test=False):
