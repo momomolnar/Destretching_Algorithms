@@ -10,6 +10,7 @@ reg.pro by Phil Wiborg and Thomas Rimmele in reg.pro
 """
 
 from asyncio import selector_events
+from lzma import MF_BT2
 import numpy as np
 import scipy as sp
 from scipy import signal as signal
@@ -23,7 +24,7 @@ class Destretch_params():
     Class containing all the information about then
 
     """
-    def __init__(self, kx, ky, wx, wy, bx, by, cpx, cpy, mf=0.08, ref_sz_x, ref_sz_y, 
+    def __init__(self, kx, ky, wx, wy, bx, by, cpx, cpy, mf, ref_sz_x, ref_sz_y, 
                        scene_sz_x, scene_sz_y, subfield_correction, 
                        max_fit_method, do_plots, debug):
         self.kx = kx    # kernel size x
@@ -841,7 +842,7 @@ def destr_control_points(reference, kernel, destr_info, border_offset, spacing_r
     """
     define_cntl_pts_orig = 0
     
-    destr_info = Destretch_params(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    destr_info = Destretch_params(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 
     # determine the number of pixels in the kernel
     ksz = kernel.shape
@@ -930,6 +931,8 @@ def destr_control_points(reference, kernel, destr_info, border_offset, spacing_r
         destr_info.bx     = np.round((allowable_range_x - total_range_x + destr_info.kx)/2.)
         destr_info.by     = np.round((allowable_range_y - total_range_y + destr_info.ky)/2.)
         
+        destr_info.mf = mf
+
         if destr_info.debug >= 2: print('Number of Control Points = ',num_grid_x, ' x ', num_grid_y)
         if destr_info.debug >= 2: print('Number of Border Pixels = ',destr_info.bx, ' x ', destr_info.by)
         if destr_info.debug >= 3: print('allowable range,grid spacing x, num grid x, total range x, start pos x',
