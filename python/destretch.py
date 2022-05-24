@@ -572,19 +572,19 @@ def doref(ref_image, apod_mask, destr_info, use_fft=False):
             sub_strt_y  = int(destr_info.rcps[1,i,j] - destr_info.ky/2)
             sub_end_y   = int(sub_strt_y + destr_info.ky - 1)
             
-            subcut = ref_image[sub_strt_y:(sub_end_y+1), sub_strt_y:(sub_end_y+1)]
+            ref_subarr = ref_image[sub_strt_x:(sub_end_x+1), sub_strt_y:(sub_end_y+1)]
             
             if destr_info.subfield_correction == 'mean_subtraction' :
-                subcut -= np.sum(subcut)/nelz
+                ref_subarr -= np.sum(ref_subarr)/nelz
             if destr_info.subfield_correction == 'plane_subtraction' :
                 fit_degree = 1
-                subcut_fit = np.polyfit(z[0, :], z[1:, ], 1)
-                subcut    -= subcut_fit
+                ref_subarr_fit = np.polyfit(ref_subarr[0, :], ref_subarr[1:, ], 1)
+                ref_subarr    -= ref_subarr_fit
                 
              # store the complex conjugate of the FFT of each reference subfield 
              #    (for later calculation of the cross correlation with the target subfield)
-            subfields_fftconj[:, :, i, j] = np.conj(np.fft.fft2(subcut * apod_mask))
-            
+            subfields_fftconj[:, :, i, j] = np.array(np.conj(np.fft.fft2(ref_subarr * apod_mask)), order="F")
+
             #sub_strt_y = sub_strt_y + destr_info.kx
             #sub_end_y = sub_end_y + destr_info.kx
         #sub_strt_y = sub_strt_y + destr_info.ky
@@ -635,6 +635,7 @@ def controlpoint_offsets(scene, subfield_fftconj, apod_mask, lowpass_filter, des
         #hx = lx + d_info.wx
 
         for i in range(0, destr_info.cpx):
+
             sub_strt_x  = int(destr_info.rcps[0,i,j] - destr_info.kx/2)
             sub_end_x   = int(sub_strt_x + destr_info.kx - 1)
 
@@ -646,24 +647,32 @@ def controlpoint_offsets(scene, subfield_fftconj, apod_mask, lowpass_filter, des
                 #ss = s[lx:hx, ly:hy]
                 scene_subarr = scene[sub_strt_x:sub_end_x+1, sub_strt_y:sub_end_y+1]
 
+                if destr_info.subfield_correction == 'mean_subtraction' :
+                    scene_subarr -= np.sum(scene_subarr)/nels
+                if destr_info.subfield_correction == 'plane_subtraction' :
+                    fit_degree = 1
+                    scene_subarr_fit = np.polyfit(scene_subarr[0, :], scene_subarr[1:, ], 1)
+                    scene_subarr    -= scene_subarr_fit
+
                 #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
                 scene_subarr_fft = np.array(np.fft.fft2(scene_subarr), order="F")
                 scene_subarr_fft = scene_subarr_fft  * subfield_fftconj[:, :, i, j] * lowpass_filter
             
                 scene_subarr_ifft = np.abs(np.fft.ifft2(scene_subarr_fft), order="F")
-                #cc = np.roll(scene_subarr_ifft, (destr_info.wx//2, destr_info.wy//2),
-                #             axis=(0, 1))
-
-                cc = np.fft.fftshift(scene_subarr_ifft)
+                cc = np.roll(scene_subarr_ifft, (int(destr_info.kx/2), int(destr_info.ky/2)),
+                             axis=(0, 1))
+                #cc = np.fft.fftshift(scene_subarr_ifft)
                 cc = np.array(cc, order="F")
 
             else:
                 #scene_subarr = scene[lx-pad_x:hx+pad_x, ly-pad_y:hy+pad_y]
-                scene_subarr = scene[sub_strt_x-pad_x:sub_end_x+pad_x, sub_strt_y-pad_y:sub_end_x+pad_y]
+                scene_subarr = scene[sub_strt_x-pad_x:sub_end_x+pad_x+1, sub_strt_y-pad_y:sub_end_y+pad_y+1]
+
                 cc = np.zeros((2*pad_x + 1, 2*pad_y + 1))
                 for m in range(2*pad_x + 1):
                     for n in range(2*pad_y + 1):
-                        cc[m, n] = -np.sum(np.abs(scene_subarr[m:m+d_info.kx, n:n+d_info.ky]
+                        #print(m,m+destr_info.kx, n,n+destr_info.ky )
+                        cc[m, n] = -np.sum(np.abs(scene_subarr[m:m+destr_info.kx, n:n+destr_info.ky]
                                                  - subfield_fftconj[:, :, i, j]))**2
 #                cc4 = np.zeros((2*pad_x + 1, 2*pad_y + 1, d_info.wx, d_info.wy))
 #                for m in range(2*pad_x + 1):
@@ -1125,6 +1134,9 @@ def reg(scene, ref, kernel_size, mf=0.08, use_fft=False, adf2_pad=0.25, border_o
     kernel = np.zeros((kernel_size, kernel_size))
 
     d_info, rdisp = destr_control_points(ref, kernel, border_offset, spacing_ratio, mf)
+    d_info.subfield_correction = 'mean_subtraction'
+    #d_info.subfield_correction = 'plane_subtraction'
+    
     mm = apod_mask(d_info.kx, d_info.ky, d_info.mf)
     smou = smouth(d_info.kx, d_info.ky)
     #Condition the ref
