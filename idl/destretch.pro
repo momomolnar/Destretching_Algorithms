@@ -1212,7 +1212,7 @@ function destretch, scene, ref, kernel, apply_scene=apply_scene,$
               rdisp=rdisp, disp=disp,$
               crosscor_fit=crosscor_fit, lowpass_factor=lowpass_factor , apod_percent=apod_percent, $
               border_offset=border_offset, spacing_ratio=spacing_ratio,$
-              debug_level=debug_level, plot_level=plot_level
+              debug_level=debug_level, plot_level=plot_level, destr_info=destr_info
 ; register scene(s) with respect to ref, using kernel size
 
 ; scene is (nx,xy) or (nx,ny,nf)	scene(s) to be registered
@@ -1242,7 +1242,7 @@ IF N_ELEMENTS(debug_level) EQ 0 THEN destr_info.debug = 3    ELSE destr_info.deb
 IF N_ELEMENTS(plot_level)  EQ 0 THEN destr_info.do_plots = 1 ELSE destr_info.do_plots = plot_level
 
 ; determine border and control point matrix size
-rdisp = destr_control_points(ref, kernel, destr_info=destr_info, border_offset=border_offset, spacing_ratio=spacing_ratio)
+rdisp = destr_control_points(destr_info=destr_info, border_offset=border_offset, spacing_ratio=spacing_ratio)
 
 ; make an apodization mask
 ; use taper_percent=0.0 to generate a mask of all 1's = no apodization
@@ -1302,7 +1302,7 @@ for frm = 0, destr_info.scene_sz_z-1 do begin
         print, 'Displacement rms =', rms
     ENDIF
 
-    x = doreg (apply_scene(*,*,frm), rdisp, disp)
+    x = doreg (apply_scene(*,*,frm), rdisp, disp, destr_info=destr_info)
     destretched_scene(*,*,frm) = x
 ;    subfield_fftconj = doref (x, apod_subarray); optional update of window
     endfor
