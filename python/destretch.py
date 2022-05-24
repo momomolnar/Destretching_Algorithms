@@ -1071,7 +1071,7 @@ def cps(scene, ref, kernel, use_fft=False, adf2_pad=0.25):
 
     """
 
-    d_info, rdisp = mkcps(ref, kernel)
+    d_info, rdisp = destr_control_points(ref, kernel)
 
 
     #mm = np.zeros((d_info.wx,d_info.wy), order="F")
@@ -1099,7 +1099,6 @@ def cps(scene, ref, kernel, use_fft=False, adf2_pad=0.25):
     if ssz[2]:
         scene = np.reshape(scene, (ssz[0], ssz[1]))
         ans = np.reshape(ans, (2, d_info.cpx, d_info.cpy))
-
 
     return ans
 
@@ -1131,12 +1130,11 @@ def reg(scene, ref, kernel_size, mf=0.08, use_fft=False, adf2_pad=0.25):
     ref -= ref.mean()
     kernel = np.zeros((kernel_size, kernel_size))
 
-    d_info, rdisp = mkcps(ref, kernel, mf)
+    d_info, rdisp = destr_control_points(ref, kernel, mf)
     mm = apod_mask(d_info.wx, d_info.wy, d_info.mf)
     smou = smouth(d_info.wx, d_info.wy)
     #Condition the ref
     subfield_fftconj = doref(ref, mm, d_info, use_fft)
-
 
     ssz = scene.shape
     ans = np.zeros((ssz[0], ssz[1]), order="F")
@@ -1190,7 +1188,7 @@ def reg_saved_window(scene, subfield_fftconj, kernel_size, d_info, rdisp, mm, sm
     """
     kernel = np.zeros((kernel_size, kernel_size))
 
-    # d_info, rdisp = mkcps(ref, kernel)
+    # d_info, rdisp = destr_control_points(ref, kernel)
     # mm = mask(d_info.wx, d_info.wy)
     # smou = smouth(d_info.wx, d_info.wy)
     #Condition the ref
@@ -1290,13 +1288,13 @@ def reg_loop_series(scene, ref, kernel_sizes, mf=0.08, use_fft=False, adf2_pad=0
     smou_d = {}
     rdisp_d = {}
 
-    # d_info, rdisp = mkcps(ref, kernel)
+    # d_info, rdisp = destr_control_points(ref, kernel)
     # mm = mask(d_info.wx, d_info.wy)
     # smou = smouth(d_info.wx, d_info.wy)
     for kernel1 in kernel_sizes:
         kernel = np.zeros((kernel1, kernel1))
 
-        d_info, rdisp = mkcps(ref, kernel, mf)
+        d_info, rdisp = destr_control_points(ref, kernel, mf)
         d_info_d[kernel1] = d_info
         rdisp_d[kernel1] = rdisp
 
