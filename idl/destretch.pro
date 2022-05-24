@@ -223,6 +223,8 @@ end
 ;  extend_with_offsets: extend displacement array by replicating measured displacements
 ;                       at borders of measured array. Set to 0 to set all extended
 ;                       displacements to 0
+; num_extpts: number of additional points to add around the borders. The default is 3, 
+;              which is usually sufficient for widely spaced, large subfields
 ; OUTPUTS:
 ;   rdisp_ext   = array of reference control points, extended beyond measured range
 ;   offsets_ext = array of displacements, extended beyond measured range
@@ -232,10 +234,11 @@ end
 ;  26 October 1990: Originally written by Phil Wiborg
 ;  August 2021: K. Reardon - cleaned up and modernized
 ;-
-pro	extend, rdisp_1d, disp_1d, rdisp_ext, offsets_ext, extend_with_offsets= extend_with_offsets	
+pro	extend, rdisp_1d, disp_1d, rdisp_ext, offsets_ext, 
+            extend_with_offsets=extend_with_offsets, num_extpts=num_extpts
 
 IF N_ELEMENTS(extend_with_offsets) EQ 0 THEN extend_with_offsets=1
-
+IF N_ELEMENTS(num_extpts) EQ 0          THEN num_extpts = 3
 num_extpts = 3
 ; get size of displacement array
 ;   add num_extpts control points on each side
