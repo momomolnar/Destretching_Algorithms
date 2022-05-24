@@ -945,7 +945,45 @@ def destr_control_points(reference, kernel, destr_info, border_offset, spacing_r
 # ********************  END: destr_control_points  *******************
 
 
-def setup(scene, ref, kernel, d_info):
+def setup(scene, reference, kernel, d_info):
+#def setup(scene, ref, kernel, d_info):
+
+    # determine the number of pixels in the kernel
+    ksz = kernel.shape
+    destr_info.kx = ksz[0]
+    destr_info.ky = ksz[1]
+
+    # determine the number of pixels in the reference image
+    # the assumption is that the reference is a 2D array, so we only need the x- and y-dimensions
+    rsz = reference.shape
+    destr_info.ref_sz_x  = rsz[0]
+    destr_info.ref_sz_y  = rsz[1]
+
+    ssz = scene.shape
+    destr_info.scene_sz_x = ksz[0]
+    destr_info.scene_sz_x = ksz[1]
+
+    errflg = 0
+
+    if ((len(ssz) != 2) and (len(ssz) != 3)):
+        print("ERROR: Input 'scene' must be a 2-D or 3-D array")
+        errflg = errflg + 1
+
+    if len(rsz) != 2:
+        print("ERROR: Destretching reference 'ref' must be a 2-D array")
+        errflg = errflg + 1
+
+    if ((ssz[0] != rsz[0]) or (ssz[1] != rsz[2])):
+        print("ERROR: Both the x and y dimensions of the input scene must match those of the reference")
+        print("arguments 'scene' & 'ref' 1st 2 dimensions must agree")
+        errflg = errflg + 1
+
+    if len(ksz) != 2:
+        print("ERROR: Destretching kernel must be 2-D array")
+        errflg = errflg + 1
+
+    if errflg > 0:
+         print("ERROR: Quitting - too many errors")
 
     return
 
