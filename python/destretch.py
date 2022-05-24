@@ -588,22 +588,25 @@ def doref(ref_image, apod_mask, destr_info, use_fft=False):
 
     return subfields_fftconj
 
-
-def cploc(s, w, apod_mask, smou, d_info, use_fft=False, adf2_pad=0.25):
+# **********************************************************
+# ******************** FUNCTION: controlpoint_offsets  *******************
+# **********************************************************
+def controlpoint_offsets(scene, subfield_fftconj, apod_mask, lowpass_filter, destr_info, , adf2_pad=0.25):
+#def cploc(s, w, apod_mask, smou, d_info, use_fft=False, adf2_pad=0.25):
     """
     Locate control points
 
     Parameters
     ----------
-    s : TYPE
-        Scene to be registered
+    scene : TYPE
+        a 2-dimensional array (L x M) containing the image to be registered
     w : TYPE
-        Reference image (window) from doref
-    mask : TYPE
+        the array of FFTs of all the image subfields, as cutout from the reference array
+    apod_mask : TYPE
         DESCRIPTION.
-    smou : TYPE
+    lowpass_filter : TYPE
         DESCRIPTION.
-    d_info : TYPE
+    destr_info : TYPE
         Destretch information
 
     Returns
@@ -611,23 +614,46 @@ def cploc(s, w, apod_mask, smou, d_info, use_fft=False, adf2_pad=0.25):
     ans: TYPE
 
     """
+    subfield_offsets = np.zeros((2, destr_info.cpx, destr_info.cpy), order="F")
 
-    ans = np.zeros((2, d_info.cpx, d_info.cpy), order="F")
+    # number of array elements in each subfield
+    nels = destr_info.wx * destr_info.wy
 
-    nels = d_info.wx * d_info.wy
-
-#    pad_x = int(d_info.kx * adf2_pad)
-#    pad_y = int(d_info.ky * adf2_pad)
+#    pad_x = int(destr_info.kx * adf2_pad)
+#    pad_y = int(destr_info.ky * adf2_pad)
     pad_x, pad_y = 2, 2
 
-    ly = d_info.by
-    hy = ly + d_info.wy
-    for j in range(0, d_info.cpy):
-        lx = d_info.bx
-        hx = lx + d_info.wx
+    #ly = d_info.by
+    #hy = ly + d_info.wy
+    for j in range(0, destr_info.cpy):
+        #lx = d_info.bx
+        #hx = lx + d_info.wx
 
-        for i in range(0, d_info.cpx):
+        for i in range(0, destr_info.cpx):
+            sub_strt_x  = destr_info.rcps[0,i,j] - destr_info.kx/2
+            sub_end_x   = sub_strt_x + destr_info.kx - 1
+
+            sub_strt_y  = destr_info.rcps[1,i,j] - destr_info.ky/2
+            sub_end_y   = sub_strt_y + destr_info.ky - 1
+
             if use_fft:
+                #cross correlation, inline
+                #ss = s[lx:hx, ly:hy]
+                scene_subarr = scene[sub_strt_x:sub_end_x, sub_strt_y:sub_end_y]
+
+                #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
+                scene_subarr_fft = np.array(np.fft.fft2(scene_subarr), order="F")
+                scene_subarr_fft = scene_subarr_fft  * subfield_fftconj[:, :, i, j] * lowpass_filter
+            
+                scene_subarr_ifft = np.abs(np.fft.ifft2(scene_subarr_fft), order="F")
+                #cc = np.roll(scene_subarr_ifft, (destr_info.wx//2, destr_info.wy//2),
+                #             axis=(0, 1))
+
+                cc = np.fft.fftshift(ss_ifft)
+                cc = np.array(cc, order="F")
+
+            else:
+
                 #cross correlation, inline
                 ss = s[lx:hx, ly:hy]
                 #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
@@ -641,25 +667,26 @@ def cploc(s, w, apod_mask, smou, d_info, use_fft=False, adf2_pad=0.25):
 
                 cc = np.array(cc, order="F")
             else:
-                ss = s[lx-pad_x:hx+pad_x, ly-pad_y:hy+pad_y]
+                #scene_subarr = scene[lx-pad_x:hx+pad_x, ly-pad_y:hy+pad_y]
+                scene_subarr = scene[sub_strt_x-pad_x:sub_end_x+pad_x, sub_strt_y-pad_y:sub_end_x+pad_y]
                 cc = np.zeros((2*pad_x + 1, 2*pad_y + 1))
                 for m in range(2*pad_x + 1):
                     for n in range(2*pad_y + 1):
-                        cc[m, n] = -np.sum(np.abs(ss[m:m+d_info.wx, n:n+d_info.wy]
-                                                 - w[:, :, i, j]))**2
+                        cc[m, n] = -np.sum(np.abs(scene_subarr[m:m+d_info.wx, n:n+d_info.wy]
+                                                 - subfield_fftconj[:, :, i, j]))**2
 #                cc4 = np.zeros((2*pad_x + 1, 2*pad_y + 1, d_info.wx, d_info.wy))
 #                for m in range(2*pad_x + 1):
 #                    for n in range(2*pad_y + 1):
 #                        cc4[m, n] = ss[m:m+d_info.wx, n:n+d_info.wy]
 #                cc = -np.sum(np.abs(cc4 - w[:, :, i, j]), (2, 3))**2
+
             mx  = np.amax(cc)
             loc = cc.argmax()
-
 
             ccsz = cc.shape
             ymax = loc % ccsz[0]
             xmax = loc // ccsz[0]
-            # breakpoint()
+
             #a more complicated interpolation
             #(from Niblack, W: An Introduction to Digital Image Processing, p 139.)
 
@@ -677,18 +704,17 @@ def cploc(s, w, apod_mask, smou, d_info, use_fft=False, adf2_pad=0.25):
                 ymax=xfra
 
             if use_fft:
-                ans[0,i,j] = lx + xmax
-                ans[1,i,j] = ly + ymax
+                ans[0,i,j] = sub_strt_x + xmax
+                ans[1,i,j] = sub_strt_y + ymax
             else:
-                ans[0,i,j] = lx + d_info.kx + xmax - pad_x
-                ans[1,i,j] = ly + d_info.ky + ymax - pad_y
+                ans[0,i,j] = sub_strt_x + destr_info.kx + xmax - pad_x
+                ans[1,i,j] = sub_strt_y + destr_info.ky + ymax - pad_y
 
-            lx = lx + d_info.kx
-            hx = hx + d_info.kx
+            #lx = lx + destr_info.kx
+            #hx = hx + destr_info.kx
 
-        ly = ly + d_info.ky
-        hy = hy + d_info.ky
-
+        #ly = ly + destr_info.ky
+        #hy = hy + destr_info.ky
 
     return ans
 
@@ -945,7 +971,7 @@ def cps(scene, ref, kernel, use_fft=False, adf2_pad=0.25):
 
 
     ref = ref/np.average(ref)*np.average(scene)
-    win = doref(ref, mm, d_info, use_fft)
+    subfield_fftconj = doref(ref, mm, d_info, use_fft)
 
     ssz = scene.shape
     nf = ssz[2]
@@ -955,7 +981,7 @@ def cps(scene, ref, kernel, use_fft=False, adf2_pad=0.25):
 
     # compute control point locations
     for frm in range(0, nf):
-        ans[:, :, :, frm] = cploc(scene[:, :, :, frm], win, mm, smou, d_info, use_fft, adf2_pad)
+        ans[:, :, :, frm] = controlpoint_offsets(scene[:, :, :, frm], subfield_fftconj, mm, smou, d_info, use_fft, adf2_pad)
         #ans[:, :, :, frm] = repair(rdisp, ans[:, :, :,frm], d_info)# optional repair
 
     if ssz[2]:
@@ -997,7 +1023,7 @@ def reg(scene, ref, kernel_size, mf=0.08, use_fft=False, adf2_pad=0.25):
     mm = apod_mask(d_info.wx, d_info.wy, d_info.mf)
     smou = smouth(d_info.wx, d_info.wy)
     #Condition the ref
-    win = doref(ref, mm, d_info, use_fft)
+    subfield_fftconj = doref(ref, mm, d_info, use_fft)
 
 
     ssz = scene.shape
@@ -1006,7 +1032,7 @@ def reg(scene, ref, kernel_size, mf=0.08, use_fft=False, adf2_pad=0.25):
     # compute control point locations
 
     #start = time()
-    disp = cploc(scene, win, mm, smou, d_info, use_fft, adf2_pad)
+    disp = controlpoint_offsets(scene, subfield_fftconj, mm, smou, d_info, use_fft, adf2_pad)
     #end = time()
     #dtime = end - start
     #print(f"Time for a scene destretch is {dtime:.3f}")
@@ -1026,7 +1052,7 @@ def reg(scene, ref, kernel_size, mf=0.08, use_fft=False, adf2_pad=0.25):
 
     return ans, disp, rdisp, d_info
 
-def reg_saved_window(scene, win, kernel_size, d_info, rdisp, mm, smou, use_fft=False, adf2_pad=0.25):
+def reg_saved_window(scene, subfield_fftconj, kernel_size, d_info, rdisp, mm, smou, use_fft=False, adf2_pad=0.25):
     """
     Register scenes with respect to ref using kernel size and
     then returns the destretched scene, using precomputed window.
@@ -1035,7 +1061,7 @@ def reg_saved_window(scene, win, kernel_size, d_info, rdisp, mm, smou, use_fft=F
     ----------
     scene : [nx, ny] [nx, ny, nf]
         Scene to be registered
-    win: [nx, ny, nf]
+    subfield_fftconj: [nx, ny, nf]
         FFT of the reference scene (computed with doref)
     kernel_size : int
        Kernel size (otherwise unused)!!!!!
@@ -1056,7 +1082,7 @@ def reg_saved_window(scene, win, kernel_size, d_info, rdisp, mm, smou, use_fft=F
     # mm = mask(d_info.wx, d_info.wy)
     # smou = smouth(d_info.wx, d_info.wy)
     #Condition the ref
-    #win = doref(ref, mm, d_info)
+    #subfield_fftconj = doref(ref, mm, d_info)
 
 
     ssz = scene.shape
@@ -1065,7 +1091,7 @@ def reg_saved_window(scene, win, kernel_size, d_info, rdisp, mm, smou, use_fft=F
     # compute control point locations
 
     #start = time()
-    disp = cploc(scene, win, mm, smou, d_info, use_fft, adf2_pad)
+    disp = controlpoint_offsets(scene, subfield_fftconj, mm, smou, d_info, use_fft, adf2_pad)
    # end = time()
   #  dtime = end - start
  #   print(f"Time for a scene destretch is {dtime:.3f}")
