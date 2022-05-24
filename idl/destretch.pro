@@ -418,6 +418,127 @@ endfor
 return, ans
 end
 
+; ************************************************************************
+; ******************** FUNCTION: rescale_distorion_map  ******************
+; ************************************************************************
+; PURPOSE:
+;  interpolate shifts measured at each control point to a grid of 
+;  distortions at each pixel in the full scene
+;
+; INPUTS:
+;    rdisp: fltarr(2,cpx,cpy) -  reference control points
+;    disp:  fltarr(2,cpx,cpy) -  actual displaced position of control points
+;
+; KEYWORD PARAMETERS:
+;    destr_info: structure containing information on destretch parameters
+;    do_plots: plot some outputs of the interpolation
+;    original_version: use the original B-spline algorithm; default is to use
+;                      IDL's built in INTERPOLATE command
+;    scale_fact: scale factor to change the amplitude of the measured distortions. 
+;                probably needed previously due to deficiencies in interpolation
+;                or cross-correlation. Default of 1.0 is probably fine now.
+; OUTPUTS:
+;    coords_destr =  coordinates for destretched scene
+; NOTES:
+;
+; MODIFICATION HISTORY:
+;  26 October 1990: Originally written by Phil Wiborg
+;  August 2021: K. Reardon - cleaned up and modernized
+;  May 2022: K. Reardon - added INTERPOLATE option since it better maintains
+;                         the small scale features of the measured distortions
+;-
+FUNCTION rescale_distorion_map, rdisp, disp, destr_info=destr_info, do_plots=do_plots, $
+                                original_version=original_version, scale_fact=scale_fact
+
+IF N_ELEMENTS(do_plots) EQ 0         THEN do_plots=0   
+IF N_ELEMENTS(original_version) EQ 0 THEN original_version=0   
+IF N_ELEMENTS(scale_fact) EQ 0       THEN scale_fact = 1.0
+
+; amplify (or reduce) the size of the distortions to be remapped
+disp_scaled = (disp - rdisp)*scale_fact + rdisp
+
+grid_spacing_x = rdisp(0,1,0)-rdisp(0,0,0)
+grid_spacing_y = rdisp(1,0,1)-rdisp(1,0,0)
+
+disp_sz = size (disp)
+disp_nx = disp_sz(2)
+disp_ny = disp_sz(3)
+    
+scene_sz = size(scene)
+scene_x = destr_info.scene_sz_x
+scene_y = destr_info.scene_sz_y
+
+; distortion map needs to be extended at borders so interpolation scheme can
+; extrapolate distortions past the boundaries of the interior control points
+; where the distortions were measured. This is done calling the "extend" function below.
+;
+; there are two ways to define the distortions extended at the edges:
+; 1) one is to extend the reference positions out to new points. This essentially 
+;       sets any subfield shifts around the boundaries to zero
+;extend_with_offsets = 0       ; exterior control points set to zero displacements
+; 2) make the distortions at the boundaries equal to those at the nearby 
+;       control points, avoiding any discontinuities in the offsets
+extend_with_offsets = 1        ; exterior control points drift with interior (best)
+
+ans = fltarr (scene_x, scene_y, 2)
+
+if original_version EQ 1 then begin
+    if (destr_info.debug GE 1) then print,"Scaling shifts using orginal B-spline"
+
+    ; splitting all the old-school interpolation out into a separate routine
+    ans = bspline(rdisp, disp, destr_info=destr_info, do_plots=do_plots, $
+                      extend_with_offsets=extend_with_offsets)
+endif else begin
+    if (destr_info.debug GE 1) then print,"Scaling shifts using IDL INTERPOLATE"
+
+    grid_extend_factor = 3
+    ; find the biggest distance from the outside control point to the edge of the full scene
+    border_distance_x = max([min(rdisp[0,*,*],max=maxval_x),scene_x - maxval_x])
+    border_distance_y = max([min(rdisp[1,*,*],max=maxval_y),scene_y - maxval_y])
+    ; define the number of extra "control points" that are needed on each edge
+    ; - the number of extra pixels needed, divided by the size of the grid spacing
+    extend_range_x    = FIX(border_distance_x * grid_extend_factor / grid_spacing_x) + 1
+    extend_range_y    = FIX(border_distance_y * grid_extend_factor / grid_spacing_y) + 1
+    
+    extend, reform(rdisp[0,*,*], disp_nx, disp_ny), $
+            reform(disp_scaled[0,*,*], disp_nx, disp_ny), Rx, Px, $
+            extend_with_offsets=extend_with_offsets, num_extpts=extend_range_x
+    ; use transpose to make y-direction arrays comparable to x-direction arrays
+    extend, transpose(reform(rdisp[1,*,*], disp_nx, disp_ny)), $
+            transpose(reform(disp_scaled[1,*,*], disp_nx, disp_ny)), Ry, Py, $
+            extend_with_offsets=extend_with_offsets, num_extpts=extend_range_y
+    ; then transpose them back
+    Ry = transpose (Ry)
+    Py = transpose (Py)
+
+    grid_start_x              = rdisp[0,0,0]
+    grid_start_y              = rdisp[1,0,0]
+    ;grid_spacing_x            = rdisp_x[1,0] - rdisp_x[0,0]
+    ;grid_spacing_y            = rdisp_y[0,1] - rdisp_y[0,0]
+    
+    ; this defines a grid of points for which we want to interpolate the distortions
+    ; INTERPOLATE uses the pixel coordinates of the input array to define the coordinate
+    ; grid. So we need to define the coordinates based on the original pixels of the 
+    ; original displacement array (which has now been extended)
+    ; so first we find which pixel in the Rx/
+    extend_size               = size(Rx)
+    extend_start_x            = interpol(findgen(extend_size[1]),rx[*,0],grid_start_x)
+    extend_start_y            = interpol(findgen(extend_size[2]),ry[0,*],grid_start_y)
+
+    output_coord_x            = (findgen(scene_x) - grid_start_x)/grid_spacing_x + extend_start_x
+    output_coord_y            = (findgen(scene_y) - grid_start_y)/grid_spacing_y + extend_start_y
+        
+    distortions_interpolate_x = interpolate(Px, output_coord_x, output_coord_y, cubic=-0.5, /grid)
+    distortions_interpolate_y = interpolate(Py, output_coord_x, output_coord_y, cubic=-0.5, /grid)
+    
+    ans[*,*,0]                = distortions_interpolate_x
+    ans[*,*,1]                = distortions_interpolate_y
+
+endelse
+
+return, ans
+end
+
 ;
 ; **********************************************************
 ; ******************** FUNCTION: apod_mask  *******************
@@ -881,8 +1002,11 @@ function doreg, scene, rdisp, disp	; destretch by re-sample of scene
 
 ; these are newer methods for doing the interpolation
 
-; this is a procedure in this file that uses a B-spline method
-xy = bspline (scene, rdisp, disp)
+; this is a procedure in this file that interpolates the measured shifts at a subgrid of 
+;     control points onto a full array equal to the input scene size (which comes from destr_info)
+;     original_version=1 uses the original B-spline algorithm
+;     original_version=0 uses IDL's built-in INTERPOLATE command
+xy = rescale_distorion_map (rdisp, disp, destr_info=destr_info, original_version=0)
 
 ; this is a procedure in this file, but there is also a bilin.pro procedure from Ray Sterner
 ; destretched_scene = bilin (scene, xy, bilinear=0)	; nearest neighbor interpolation
