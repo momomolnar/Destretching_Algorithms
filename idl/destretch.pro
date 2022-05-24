@@ -208,26 +208,7 @@ endif else begin
 
 return, scene_destr
 end
-;
-; **********************************************************
-; ******************** FUNCTION: patch  *******************
-; **********************************************************
 
-function	patch, compx, compy, s, t
-
-ans = fltarr (n_elements(s), n_elements(t), 2)
-ss = reform([s^3,s^2,s,replicate(1.,n_elements(s))],n_elements(s),4)
-tt = transpose(reform([t^3,t^2,t,replicate(1.,n_elements(t))],n_elements(t),4))
-a1x = ss # compx
-a1y = ss # compy
-a2x = a1x # tt
-a2y = a1y # tt
-
-ans(*,*,0) = ss # compx # tt
-ans(*,*,1) = ss # compy # tt
-
-return, ans
-end
 ;
 ; **********************************************************
 ; ******************** FUNCTION: extend  *******************
@@ -315,7 +296,6 @@ ENDELSE
 return
 
 end
-;
 ; **********************************************************
 ; ******************** FUNCTION: bspline  ******************
 ; **********************************************************
@@ -336,86 +316,94 @@ end
 ; MODIFICATION HISTORY:
 ;  26 October 1990: Originally written by Phil Wiborg
 ;  August 2021: K. Reardon - cleaned up and modernized
+;  May 2022: K. Reardon - changed to a standalone function, as one interpolation
+;                         option to be called by rescale_distorion_map
 ;-
-FUNCTION bspline, scene, rdisp, disp, do_plots=do_plots
+FUNCTION bspline, rdisp, disp, destr_info=destr_info, do_plots=do_plots, $
+                  extend_with_offsets=extend_with_offsets
 
-IF N_ELEMENTS(do_plots) EQ 0 THEN do_plots=0	
+IF N_ELEMENTS(do_plots) EQ 0 THEN do_plots=0   
+IF N_ELEMENTS(extend_with_offsets) EQ 0 THEN extend_with_offsets=1
 
-always = 1	; exterior control points drift with interior (best)
-;always = 0	; exterior control points fixed by ref. displacements
+; this tells us the target size of the output array
+scene_x = destr_info.scene_sz_x
+scene_y = destr_info.scene_sz_y
+ans     = fltarr (scene_x, scene_y, 2)
 
-; a kludgery: increases magnitude of error, since
-; curve doesn't generally pass through the tie pts.
-scale_fact = 1.0
+grid_spacing_x   = rdisp(0,1,0)-rdisp(0,0,0)
+grid_spacing_y   = rdisp(1,0,1)-rdisp(1,0,0)
 
-d = (disp - rdisp)*scale_fact + rdisp
-
-del_x = rdisp(0,1,0)-rdisp(0,0,0)
-del_y = rdisp(1,0,1)-rdisp(1,0,0)
-
-disp_sz = size (disp)
+disp_sz = size(disp)
 disp_nx = disp_sz(2)
 disp_ny = disp_sz(3)
 
-; extend rdisp & disp to cover entire image. Two possible methods:
-if always then begin
-    ; (1) this method lets boundary drift with actual displacements at
-    ;     edges of 'd' table.
+grid_extend_factor = 3
+; find the biggest distance from the outside control point to the edge of the full scene
+border_distance_x = max([min(rdisp[0,*,*],max=maxval_x),scene_x - maxval_x])
+border_distance_y = max([min(rdisp[1,*,*],max=maxval_y),scene_y - maxval_y])
+; define the number of extra "control points" that are needed on each edge
+; - the number of extra pixels needed, divided by the size of the grid spacing
+extend_range_x    = FIX(border_distance_x * grid_extend_factor / grid_spacing_x) + 1
+extend_range_y    = FIX(border_distance_y * grid_extend_factor / grid_spacing_y) + 1
 
-    extend, reform(rdisp[0,*,*], disp_nx, disp_ny), reform(disp[0,*,*], disp_nx, disp_ny), Rx, Px
-    extend, transpose(reform(rdisp[1,*,*], disp_nx, disp_ny)), transpose(reform(disp[1,*,*], disp_nx, disp_ny)), Ry, Py
-    Ry = transpose (Ry)
-    Py = transpose (Py)
+extend, reform(rdisp[0,*,*], disp_nx, disp_ny), $
+            reform(disp[0,*,*], disp_nx, disp_ny), Rx, Px, $
+            extend_with_offsets=extend_with_offsets, num_extpts=extend_range_x
+extend, transpose(reform(rdisp[1,*,*], disp_nx, disp_ny)), $
+            transpose(reform(disp[1,*,*], disp_nx, disp_ny)), Ry, Py, $
+            extend_with_offsets=extend_with_offsets, num_extpts=extend_range_y
+Ry = transpose (Ry)
+Py = transpose (Py)
 
-endif else begin
-    ; (0) this (eariler) method fixes boundary of image to 'r' reference
-    ;     displacements.
-
-    extend, reform(rdisp[0,*,*], disp_nx, disp_ny), $
-                reform(disp[0,*,*], disp_nx, disp_ny), Rx, Px, extend_with_offsets=0
-    extend, transpose(reform(rdisp[1,*,*], disp_nx, disp_ny)), $
-                transpose(reform(disp[1,*,*], disp_nx, disp_ny)), Ry, Py, extend_with_offsets=0
-    Ry = transpose (Ry)
-    Py = transpose (Py)
-
-endelse
+rdisp_extend_nx = n_elements(Rx[*,0])
+rdisp_extend_ny = n_elements(Ry[0,*])
 
 Ms  = [-1,3,-3,1, 3,-6,0,4, -3,3,3,1, 1,0,0,0]/6.
 Ms  = reform (Ms, 4,4)
 MsT = transpose(Ms)
 
-scene_sz = size(scene)
-scene_x = scene_sz(1)
-scene_y = scene_sz(2)
-
-ans = fltarr (scene_x, scene_y, 2)
-
-for v=0, disp_ny+2 do begin
+; step through each control point in the extended array of reference points,
+;     first in the y-axis
+for v=0, rdisp_extend_ny-3 do begin
     t0 = Ry(1,v+1)
     tn = Ry(1,v+2)
+    ; if the value of the pixel position at the current control point is outside
+    ;     the bounds of the full array, we don't need to interpolate a value 
+    ;     at those points (since they are outside the bounds of the final image)
     if (tn le 0) or (t0 ge scene_y-1) then begin
-        ; nothing to do, skip this iteration
+        ; nothing to do, outside of the final array, skip this iteration
     endif else begin
         t0 = max ([t0, 0])
-        tn = min ([tn, scene_y-1])
-        t = findgen(FIX(tn)-FIX(t0))/del_y + (t0-Ry(1,v+1))/del_y
-        for u=0, disp_sz(2)+2 do begin
+        tn = min ([tn, scene_y])
+        t = findgen(FIX(tn)-FIX(t0))/grid_spacing_y + (t0-Ry(1,v+1))/grid_spacing_y
 
+        for u=0, rdisp_extend_nx-3 do begin
             s0 = Rx(u+1,v+1)
             sn = Rx(u+2,v+1)
             if (sn le 0) or (s0 ge scene_x-1) then begin
                 ; nothing to do, skip this iteration
             endif else begin
                 s0 = max ([s0,0])
-                sn = min ([sn, scene_x-1])
-                s = findgen(FIX(sn)-FIX(s0))/del_x + (s0-Rx(u+1,v+1))/del_x
+                sn = min ([sn, scene_x])
+                s = findgen(FIX(sn)-FIX(s0))/grid_spacing_x + (s0-Rx(u+1,v+1))/grid_spacing_x
                 ;help,Ms,Px(u:u+3,v:v+3),MsT
                 compx = reform (Ms # Px(u:u+3,v:v+3) # MsT, 4, 4)
                 compy = reform (Ms # Py(u:u+3,v:v+3) # MsT, 4, 4)
-                ans(s0:sn-1,t0:tn-1,*) = patch (compx, compy, s, t)
-	
-                ;    IF (v EQ 7) and (u EQ 7) THEN PRINT,compx,compy
+                ; previously the secondary "patch" procedure was called to calculate
+                ; the interpolated shifts
+                ;ans(s0:sn-1,t0:tn-1,*) = patch (compx, compy, s, t)
+                
+                ; now we just move that algorithm here
+                ss = reform([s^3,s^2,s,replicate(1.,n_elements(s))],n_elements(s),4)
+                tt = transpose(reform([t^3,t^2,t,replicate(1.,n_elements(t))],n_elements(t),4))
+                a1x = ss # compx
+                a1y = ss # compy
+                a2x = a1x # tt
+                a2y = a1y # tt
 
+                ans(s0:sn-1,t0:tn-1,0) = ss # compx # tt
+                ans(s0:sn-1,t0:tn-1,1) = ss # compy # tt
+       
                 if (do_plots GE 2) and (u gt 0) and (v gt 0) then begin
                     plots, reform(ans(s0,t0,*),2,1), /dev, psym=7
                     wait,0.
@@ -429,6 +417,7 @@ endfor
 
 return, ans
 end
+
 ;
 ; **********************************************************
 ; ******************** FUNCTION: apod_mask  *******************
