@@ -22,17 +22,26 @@ class Destretch_params():
     Class containing all the information about then
 
     """
-
-    def __init__(self, kx, ky, wx, wy, bx, by, cpx, cpy, mf=0.08):
-        self.kx = kx
-        self.ky = ky
-        self.wx = wx
-        self.wy = wy
-        self.bx = bx
-        self.by = by
-        self.cpx = cpx
-        self.cpy = cpy
-        self.mf = mf
+    def __init__(self, kx, ky, wx, wy, bx, by, cpx, cpy, mf=0.08, ref_sz_x, ref_sz_y, 
+                       scene_sz_x, scene_sz_y, subfield_correction, 
+                       max_fit_method, do_plots, debug):
+        self.kx = kx    # kernel size x
+        self.ky = ky    # kernel size y
+        self.wx = wx    # border offset in x direction
+        self.wy = wy    # border offset in y direction
+        self.bx = bx    # boundary size in x direction
+        self.by = by    # boundary size in y direction
+        self.cpx = cpx  # number of control points in x direction
+        self.cpy = cpy  # number of control points in y direction
+        self.mf = mf    # 
+        self.ref_sz_x = ref_sz_x 
+        self.ref_sz_y = ref_sz_y 
+        self.scene_sz_x = scene_sz_x 
+        self.scene_sz_y = scene_sz_y 
+        self.subfield_correction = subfield_correction
+        self.max_fit_method = max_fit_method
+        self.do_plots = do_plots
+        self.debug = debug
 
     def print_props(self):
         print("[kx, ky, wx, wy, bx, by, cpx, cpy, mf] are:")
