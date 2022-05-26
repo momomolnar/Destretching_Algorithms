@@ -35,7 +35,7 @@ class Destretch_params():
         self.by = by    # boundary size in y direction
         self.cpx = cpx  # number of control points in x direction
         self.cpy = cpy  # number of control points in y direction
-        self.mf = mf    # 
+        self.mf = mf    # apodization percentage
         self.rcps = rcps    # array of control points
         self.ref_sz_x = ref_sz_x 
         self.ref_sz_y = ref_sz_y 
@@ -593,11 +593,113 @@ def doref(ref_image, apod_mask, destr_info, use_fft=False):
 
     return subfields_fftconj
 
+def crosscor_maxpos(cc):
+
+    mx  = np.amax(cc)
+    loc = cc.argmax()
+
+    ccsz = cc.shape
+    ymax = loc % ccsz[0]
+    xmax = loc // ccsz[0]
+
+    #a more complicated interpolation
+    #(from Niblack, W: An Introduction to Digital Image Processing, p 139.)
+
+    if ((xmax*ymax > 0) and (xmax < (ccsz[0]-1))
+        and (ymax < (ccsz[1]-1))):
+    #if (1 == 1):
+        denom = 2 * mx - cc[xmax-1,ymax] - cc[xmax+1,ymax]
+        xfra = (xmax-1/2) + (mx-cc[xmax-1,ymax])/denom
+
+        denom = 2 * mx - cc[xmax,ymax-1] - cc[xmax,ymax+1]
+        yfra = (ymax-1/2) + (mx-cc[xmax,ymax-1])/denom
+
+        # breakpoint()
+        xmax=yfra
+        ymax=xfra
+
+    return xmax, ymax
+
 # **********************************************************
-# ******************** FUNCTION: controlpoint_offsets  *******************
+# ******************** FUNCTION: controlpoint_offsets_fft  *******************
 # **********************************************************
-def controlpoint_offsets(scene, subfield_fftconj, apod_mask, lowpass_filter, destr_info, use_fft, adf2_pad=0.25):
+def controlpoint_offsets_fft(scene, subfield_fftconj, apod_mask, lowpass_filter, destr_info, use_fft):
+# TODO: check that this works, is called from reg
+# TODO: make plane_subtraction option work
 #def cploc(s, w, apod_mask, smou, d_info, use_fft=False, adf2_pad=0.25):
+    """
+    Locate control points
+
+    Parameters
+    ----------
+    scene : TYPE
+        a 2-dimensional array (L x M) containing the image to be registered
+    w : TYPE
+        the array of FFTs of all the image subfields, as cutout from the reference array
+    apod_mask : TYPE
+        DESCRIPTION.
+    lowpass_filter : TYPE
+        DESCRIPTION.
+    destr_info : TYPE
+        Destretch information
+
+    Returns
+    -------
+    ans: TYPE
+
+    """
+    subfield_offsets = np.zeros((2, destr_info.cpx, destr_info.cpy), order="F")
+
+    # number of array elements in each subfield
+    nels = destr_info.kx * destr_info.ky
+
+    for j in range(0, destr_info.cpy):
+ 
+        for i in range(0, destr_info.cpx):
+
+            sub_strt_x  = int(destr_info.rcps[0,i,j] - destr_info.kx/2)
+            sub_end_x   = int(sub_strt_x + destr_info.kx - 1)
+
+            sub_strt_y  = int(destr_info.rcps[1,i,j] - destr_info.ky/2)
+            sub_end_y   = int(sub_strt_y + destr_info.ky - 1)
+
+            #cross correlation, inline
+            #ss = s[lx:hx, ly:hy]
+            scene_subarr = scene[sub_strt_x:sub_end_x+1, sub_strt_y:sub_end_y+1]
+
+            if destr_info.subfield_correction == 'mean_subtraction' :
+                scene_subarr -= np.sum(scene_subarr)/nels
+            if destr_info.subfield_correction == 'plane_subtraction' :
+                fit_degree = 1
+                scene_subarr_fit = np.polyfit(scene_subarr[0, :], scene_subarr[1:, ], 1)
+                scene_subarr    -= scene_subarr_fit
+
+            #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
+            scene_subarr_fft = np.array(np.fft.fft2(scene_subarr), order="F")
+            scene_subarr_fft = scene_subarr_fft  * subfield_fftconj[:, :, i, j] * lowpass_filter
+        
+            scene_subarr_ifft = np.abs(np.fft.ifft2(scene_subarr_fft), order="F")
+            cc = np.roll(scene_subarr_ifft, (int(destr_info.kx/2), int(destr_info.ky/2)),
+                            axis=(0, 1))
+            #cc = np.fft.fftshift(scene_subarr_ifft)
+            cc = np.array(cc, order="F")
+
+            xmax, ymax = crosscor_maxpos(cc)
+
+            subfield_offsets[0,i,j] = sub_strt_x + xmax
+            subfield_offsets[1,i,j] = sub_strt_y + ymax
+
+    return subfield_offsets
+
+
+# **********************************************************
+# ******************** FUNCTION: controlpoint_offsets_adf  *******************
+# **********************************************************
+def controlpoint_offsets_adf(scene, reference, apod_mask, lowpass_filter, destr_info, use_fft, adf2_pad=0.25):
+# TODO: check that this works, is called from reg, clean up arguments
+# TODO: make work with reference subfields
+# TODO: add a "power" option - so it can compute both ADF and ADF^2
+# #def cploc(s, w, apod_mask, smou, d_info, use_fft=False, adf2_pad=0.25):
     """
     Locate control points
 
@@ -628,11 +730,7 @@ def controlpoint_offsets(scene, subfield_fftconj, apod_mask, lowpass_filter, des
 #    pad_y = int(destr_info.ky * adf2_pad)
     pad_x, pad_y = 2, 2
 
-    #ly = d_info.by
-    #hy = ly + d_info.wy
     for j in range(0, destr_info.cpy):
-        #lx = d_info.bx
-        #hx = lx + d_info.wx
 
         for i in range(0, destr_info.cpx):
 
@@ -642,79 +740,25 @@ def controlpoint_offsets(scene, subfield_fftconj, apod_mask, lowpass_filter, des
             sub_strt_y  = int(destr_info.rcps[1,i,j] - destr_info.ky/2)
             sub_end_y   = int(sub_strt_y + destr_info.ky - 1)
 
-            if use_fft:
-                #cross correlation, inline
-                #ss = s[lx:hx, ly:hy]
-                scene_subarr = scene[sub_strt_x:sub_end_x+1, sub_strt_y:sub_end_y+1]
+            #scene_subarr = scene[lx-pad_x:hx+pad_x, ly-pad_y:hy+pad_y]
+            scene_subarr = scene[sub_strt_x-pad_x:sub_end_x+pad_x+1, sub_strt_y-pad_y:sub_end_y+pad_y+1]
 
-                if destr_info.subfield_correction == 'mean_subtraction' :
-                    scene_subarr -= np.sum(scene_subarr)/nels
-                if destr_info.subfield_correction == 'plane_subtraction' :
-                    fit_degree = 1
-                    scene_subarr_fit = np.polyfit(scene_subarr[0, :], scene_subarr[1:, ], 1)
-                    scene_subarr    -= scene_subarr_fit
-
-                #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
-                scene_subarr_fft = np.array(np.fft.fft2(scene_subarr), order="F")
-                scene_subarr_fft = scene_subarr_fft  * subfield_fftconj[:, :, i, j] * lowpass_filter
-            
-                scene_subarr_ifft = np.abs(np.fft.ifft2(scene_subarr_fft), order="F")
-                cc = np.roll(scene_subarr_ifft, (int(destr_info.kx/2), int(destr_info.ky/2)),
-                             axis=(0, 1))
-                #cc = np.fft.fftshift(scene_subarr_ifft)
-                cc = np.array(cc, order="F")
-
-            else:
-                #scene_subarr = scene[lx-pad_x:hx+pad_x, ly-pad_y:hy+pad_y]
-                scene_subarr = scene[sub_strt_x-pad_x:sub_end_x+pad_x+1, sub_strt_y-pad_y:sub_end_y+pad_y+1]
-
-                cc = np.zeros((2*pad_x + 1, 2*pad_y + 1))
-                for m in range(2*pad_x + 1):
-                    for n in range(2*pad_y + 1):
-                        #print(m,m+destr_info.kx, n,n+destr_info.ky )
-                        cc[m, n] = -np.sum(np.abs(scene_subarr[m:m+destr_info.kx, n:n+destr_info.ky]
-                                                 - subfield_fftconj[:, :, i, j]))**2
+            cc = np.zeros((2*pad_x + 1, 2*pad_y + 1))
+            for m in range(2*pad_x + 1):
+                for n in range(2*pad_y + 1):
+                    #print(m,m+destr_info.kx, n,n+destr_info.ky )
+                    cc[m, n] = -np.sum(np.abs(scene_subarr[m:m+destr_info.kx, n:n+destr_info.ky]
+                                                - subfield_fftconj[:, :, i, j]))**2
 #                cc4 = np.zeros((2*pad_x + 1, 2*pad_y + 1, d_info.wx, d_info.wy))
 #                for m in range(2*pad_x + 1):
 #                    for n in range(2*pad_y + 1):
 #                        cc4[m, n] = ss[m:m+d_info.wx, n:n+d_info.wy]
 #                cc = -np.sum(np.abs(cc4 - w[:, :, i, j]), (2, 3))**2
 
-            mx  = np.amax(cc)
-            loc = cc.argmax()
+            xmax, ymax = crosscor_maxpos(cc)
 
-            ccsz = cc.shape
-            ymax = loc % ccsz[0]
-            xmax = loc // ccsz[0]
-
-            #a more complicated interpolation
-            #(from Niblack, W: An Introduction to Digital Image Processing, p 139.)
-
-            if ((xmax*ymax > 0) and (xmax < (ccsz[0]-1))
-                and (ymax < (ccsz[1]-1))):
-            #if (1 == 1):
-                denom = 2 * mx - cc[xmax-1,ymax] - cc[xmax+1,ymax]
-                xfra = (xmax-1/2) + (mx-cc[xmax-1,ymax])/denom
-
-                denom = 2 * mx - cc[xmax,ymax-1] - cc[xmax,ymax+1]
-                yfra = (ymax-1/2) + (mx-cc[xmax,ymax-1])/denom
-
-                # breakpoint()
-                xmax=yfra
-                ymax=xfra
-
-            if use_fft:
-                subfield_offsets[0,i,j] = sub_strt_x + xmax
-                subfield_offsets[1,i,j] = sub_strt_y + ymax
-            else:
-                subfield_offsets[0,i,j] = sub_strt_x + destr_info.kx + xmax - pad_x
-                subfield_offsets[1,i,j] = sub_strt_y + destr_info.ky + ymax - pad_y
-
-            #lx = lx + destr_info.kx
-            #hx = hx + destr_info.kx
-
-        #ly = ly + destr_info.ky
-        #hy = hy + destr_info.ky
+            subfield_offsets[0,i,j] = sub_strt_x + destr_info.kx + xmax - pad_x
+            subfield_offsets[1,i,j] = sub_strt_y + destr_info.ky + ymax - pad_y
 
     return subfield_offsets
 
@@ -1106,6 +1150,14 @@ def cps(scene, ref, kernel, use_fft=False, adf2_pad=0.25):
     return ans
 
 def reg(scene, ref, kernel_size, mf=0.08, use_fft=False, adf2_pad=0.25, border_offset=4, spacing_ratio=0.5):
+# TODO: clean up control point offset calculations - move FFT specific calls (e.g. apod) into conditional
+# TODO: (here and elsewhere) rename d_info to destr_info
+# TODO: add crosscorrelation choice, other parameters to destr_info; rename destr_info.mf
+# TODO: make destr_info an optional input
+# TODO: change spacing_ratio to controlpoint_spacing (in pixels)
+# TODO: add documentation to functions, etc.!
+# TODO: process flowchart
+# TODO: testing framework - pytest?
     """
     Register scenes with respect to ref using kernel size and
     then returns the destretched scene.
@@ -1137,10 +1189,9 @@ def reg(scene, ref, kernel_size, mf=0.08, use_fft=False, adf2_pad=0.25, border_o
     d_info.subfield_correction = 'mean_subtraction'
     #d_info.subfield_correction = 'plane_subtraction'
     
-    mm = apod_mask(d_info.kx, d_info.ky, d_info.mf)
+    apod_window = apod_mask(d_info.kx, d_info.ky, d_info.mf)
     smou = smouth(d_info.kx, d_info.ky)
     #Condition the ref
-    subfield_fftconj = doref(ref, mm, d_info, use_fft)
 
     ssz = scene.shape
     ans = np.zeros((ssz[0], ssz[1]), order="F")
@@ -1148,7 +1199,13 @@ def reg(scene, ref, kernel_size, mf=0.08, use_fft=False, adf2_pad=0.25, border_o
     # compute control point locations
 
     #start = time()
-    disp = controlpoint_offsets(scene, subfield_fftconj, mm, smou, d_info, use_fft, adf2_pad)
+    #if offset_method == 'crosscor_fft': 
+    #    subfield_fftconj = doref(ref, apod_window, d_info, use_fft)
+    #    disp = controlpoint_offsets_crosscor(scene, subfield_fftconj, apod_window, smou, d_info,
+    #else if offset_method == 'adf':
+    #    disp = controlpoint_offsets_adf(scene, ref, smou, d_info,
+
+    disp = controlpoint_offsets(scene, subfield_fftconj, apod_window, smou, d_info, use_fft, adf2_pad)
     #end = time()
     #dtime = end - start
     #print(f"Time for a scene destretch is {dtime:.3f}")
