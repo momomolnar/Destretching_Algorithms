@@ -8,7 +8,7 @@ To-do list (8/17/21):
   9)  Break down the definition *doref* to be able to take a list of _arbitrary_ grid points;
   10) Make a control point index that contains all the subfield Control Point locations and remove;
   the extra dimension in all the fft routines;
-  12) Change the interpolation function with a modern implementation (faster);
+  12) [X] Change the interpolation function with a modern implementation (faster);
 
 
   4) Insert a white noise estimator to see when the box size is small enough; 
