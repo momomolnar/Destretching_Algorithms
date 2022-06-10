@@ -26,7 +26,7 @@ class Destretch_params():
     """
     def __init__(self, kx, ky, wx, wy, bx, by, cpx, cpy, mf, rcps, ref_sz_x, ref_sz_y, 
                        scene_sz_x, scene_sz_y, subfield_correction, 
-                       max_fit_method, do_plots, debug):
+                       max_fit_method, use_fft, do_plots, debug):
         self.kx = kx    # kernel size x
         self.ky = ky    # kernel size y
         self.wx = wx    # border offset in x direction
@@ -41,8 +41,10 @@ class Destretch_params():
         self.ref_sz_y = ref_sz_y 
         self.scene_sz_x = scene_sz_x 
         self.scene_sz_y = scene_sz_y 
-        self.subfield_correction = subfield_correction
+        self.subfield_correction = subfield_correction  # order of polynomial to
+                                                        # subtract from subfields
         self.max_fit_method = max_fit_method
+        self.use_fft = use_fft
         self.do_plots = do_plots
         self.debug = debug
 
@@ -51,7 +53,7 @@ class Destretch_params():
         print(self.kx, self.ky, self.wx, self.wy, self.bx, self.by,
               self.cpx, self.cpy, self.mf)
 
-def plot_cps(ax_object, d_info):
+def plot_cps(ax_object, destr_info):
     """
     Plot the control points for the destretching on the destretched
     image
@@ -60,7 +62,7 @@ def plot_cps(ax_object, d_info):
     ----------
     ax_object : matplotlib ax object
         Axis object to have the control points plotted on;
-    d_info : class Destretch_params
+    destr_info : class Destretch_params
         Destretch Parameters;
 
     Returns
@@ -198,7 +200,7 @@ def bilin_control_points(scene, rdisp, disp,
 
     return (xy_grid)
 
-def bspline(scene, r, dd, d_info):
+def bspline(scene, r, dd, destr_info):
     """
     Destretch the scene using a B-spline
 
@@ -211,7 +213,7 @@ def bspline(scene, r, dd, d_info):
     dd : TYPE
         actual displacements of control points
 
-    d_info: Destretch_class
+    destr_info: Destretch_class
         info about the destretching
 
     Returns
@@ -523,7 +525,67 @@ def smouth(nx, ny):
 
     return mm
 
-def doref(ref_image, apod_mask, destr_info, use_fft=False):
+
+def surface_fit(points_array, order=0):
+    """
+    Fit a polynomial surface to a 2-D array of values.
+    
+    Parameters
+    ----------
+    points_array : a 2-dimensional array (L x M) of points
+            to which a plane will be fit
+    order : maximum exponent of polynomial
+    
+    Returns
+    -------
+    surface_array : a 2-dimensional array (L x M) of points
+            representing the best-fit surface
+    """
+    
+    if order == 0:
+        # Fitting with only mean, equivalent to order 0 polynomial
+        surface_array = np.ones(points_array.shape) * points_array.mean()
+        return surface_array
+        
+    elif order == 1:
+        # Analytical solution for plane using linear algebra
+        # grid points in X,Y
+        L, M = points_array.shape
+        X1, X2 = np.mgrid[:L, :M]
+        # reshape independent variables into form [a, b*X1, c*X2]
+        X = np.hstack((np.ones((L*M, 1)), X1.reshape((L*M, 1)), X2.reshape((L*M, 1))))
+        # reshape dependent variable into column vector
+        YY = points_array.reshape((L*M, 1))
+        # calculate normal vector of plane: theta = [X.T X]^-1 X.T YY
+        theta = np.dot(np.dot(np.linalg.pinv(np.dot(X.T, X)), X.T), YY)
+        # obtain fitted plane: plane_points = X ⋅ theta
+        surface_array = np.dot(X, theta).reshape((L, M))
+        
+        return surface_array
+        
+    else:
+        # Linear least-squares fitting, minimize A ⋅ x - b
+        # grid points in X,Y
+        L, M = points_array.shape
+        x, y = np.mgrid[:L, :M]
+        # define matrix of coefficients for polynomial (x in matrix equation)
+        coeffs = np.ones((order+1, order+1))
+        # matrix of independent variables, one term (x^m y^n) per column
+        a = np.zeros((x.size, coeffs.size))
+        for index, (j, i) in enumerate(np.ndindex(coeffs.shape)):
+            arr = coeffs[i, j] * x**i * y**j
+            a[:, index] = arr.ravel()
+        # perform least-squares fit
+        fit = np.linalg.lstsq(a, points_array.ravel(), rcond=None)
+        # obtain polynomial coefficients in array form
+        fit_coeffs = fit[0].reshape(coeffs.shape)
+        # obtain surface defined by polynomial with fitted coefficients
+        surface_array = np.polynomial.polynomial.polyval2d(x, y, fit_coeffs)
+        
+        return surface_array
+
+
+def doref(ref_image, apod_mask, destr_info):
     """
     Setup reference window
 
@@ -533,7 +595,7 @@ def doref(ref_image, apod_mask, destr_info, use_fft=False):
             against which the scene should be registered
     apod_mask : apodization mask to be applied to subfield image 
         mask
-    d_info : TYPE
+    destr_info : TYPE
         Destretch_info.
 
     Returns
@@ -574,12 +636,7 @@ def doref(ref_image, apod_mask, destr_info, use_fft=False):
             
             ref_subarr = ref_image[sub_strt_x:(sub_end_x+1), sub_strt_y:(sub_end_y+1)]
             
-            if destr_info.subfield_correction == 'mean_subtraction' :
-                ref_subarr -= np.sum(ref_subarr)/nelz
-            if destr_info.subfield_correction == 'plane_subtraction' :
-                fit_degree = 1
-                ref_subarr_fit = np.polyfit(ref_subarr[0, :], ref_subarr[1:, ], 1)
-                ref_subarr    -= ref_subarr_fit
+            ref_subarr -= surface_fit(ref_subarr, destr_info.subfield_correction)
                 
              # store the complex conjugate of the FFT of each reference subfield 
              #    (for later calculation of the cross correlation with the target subfield)
@@ -623,29 +680,30 @@ def crosscor_maxpos(cc):
 # **********************************************************
 # ******************** FUNCTION: controlpoint_offsets_fft  *******************
 # **********************************************************
-def controlpoint_offsets_fft(scene, subfield_fftconj, apod_mask, lowpass_filter, destr_info, use_fft):
+def controlpoint_offsets_fft(scene, subfield_fftconj, apod_mask, lowpass_filter, destr_info):
 # TODO: check that this works, is called from reg
 # TODO: make plane_subtraction option work
-#def cploc(s, w, apod_mask, smou, d_info, use_fft=False, adf2_pad=0.25):
+#def cploc(s, w, apod_mask, smou, d_info, adf2_pad=0.25):
     """
     Locate control points
 
     Parameters
     ----------
-    scene : TYPE
+    scene : array
         a 2-dimensional array (L x M) containing the image to be registered
-    w : TYPE
+    subfield_fftconj : array
         the array of FFTs of all the image subfields, as cutout from the reference array
-    apod_mask : TYPE
-        DESCRIPTION.
-    lowpass_filter : TYPE
-        DESCRIPTION.
-    destr_info : TYPE
+    apod_mask : array
+        apodization mask, darkens edges of images to reduce FFT artifacts
+    lowpass_filter : array
+        reduces high-frequency noise in FFT
+    destr_info : structure
         Destretch information
 
     Returns
     -------
-    ans: TYPE
+    subfield_offsets : array
+        X and Y offsets for control points
 
     """
     subfield_offsets = np.zeros((2, destr_info.cpx, destr_info.cpy), order="F")
@@ -667,12 +725,7 @@ def controlpoint_offsets_fft(scene, subfield_fftconj, apod_mask, lowpass_filter,
             #ss = s[lx:hx, ly:hy]
             scene_subarr = scene[sub_strt_x:sub_end_x+1, sub_strt_y:sub_end_y+1]
 
-            if destr_info.subfield_correction == 'mean_subtraction' :
-                scene_subarr -= np.sum(scene_subarr)/nels
-            if destr_info.subfield_correction == 'plane_subtraction' :
-                fit_degree = 1
-                scene_subarr_fit = np.polyfit(scene_subarr[0, :], scene_subarr[1:, ], 1)
-                scene_subarr    -= scene_subarr_fit
+            scene_subarr -= surface_fit(scene_subarr, destr_info.subfield_correction)
 
             #ss = (ss - np.polyfit(ss[0, :], ss[1 1))*mask
             scene_subarr_fft = np.array(np.fft.fft2(scene_subarr), order="F")
@@ -695,30 +748,32 @@ def controlpoint_offsets_fft(scene, subfield_fftconj, apod_mask, lowpass_filter,
 # **********************************************************
 # ******************** FUNCTION: controlpoint_offsets_adf  *******************
 # **********************************************************
-def controlpoint_offsets_adf(scene, reference, apod_mask, lowpass_filter, destr_info, use_fft, adf2_pad=0.25):
+def controlpoint_offsets_adf(scene, reference, destr_info, adf_pad=0.25, adf_pow=2):
 # TODO: check that this works, is called from reg, clean up arguments
 # TODO: make work with reference subfields
 # TODO: add a "power" option - so it can compute both ADF and ADF^2
-# #def cploc(s, w, apod_mask, smou, d_info, use_fft=False, adf2_pad=0.25):
+# #def cploc(s, w, apod_mask, smou, d_info, adf2_pad=0.25):
     """
     Locate control points
 
     Parameters
     ----------
-    scene : TYPE
+    scene : array
         a 2-dimensional array (L x M) containing the image to be registered
-    w : TYPE
-        the array of FFTs of all the image subfields, as cutout from the reference array
-    apod_mask : TYPE
-        DESCRIPTION.
-    lowpass_filter : TYPE
-        DESCRIPTION.
-    destr_info : TYPE
+    reference : array
+        the reference array
+    destr_info : structure
         Destretch information
+    adf_pad : float or int
+        If float between 0 and 1, fraction of subfield by which to shift
+        If int > 0, number of pixels by which to shift
+    adf_pow : int
+        Exponent for ADF function. 1 for ADF, 2 for ADF^2
 
     Returns
     -------
-    ans: TYPE
+    subfield_offsets : array
+        X and Y offsets for control points
 
     """
     subfield_offsets = np.zeros((2, destr_info.cpx, destr_info.cpy), order="F")
@@ -726,9 +781,14 @@ def controlpoint_offsets_adf(scene, reference, apod_mask, lowpass_filter, destr_
     # number of array elements in each subfield
     nels = destr_info.kx * destr_info.ky
 
-#    pad_x = int(destr_info.kx * adf2_pad)
-#    pad_y = int(destr_info.ky * adf2_pad)
-    pad_x, pad_y = 2, 2
+    if adf_pad < 1:
+        pad_x = int(destr_info.kx * adf_pad)
+        pad_y = int(destr_info.ky * adf_pad)
+    elif adf_pad > 1:
+        pad_x = int(adf_pad)
+        pad_y = int(adf_pad)
+    else:
+        raise TypeError("adf_pad must be int or float > 0")
 
     for j in range(0, destr_info.cpy):
 
@@ -741,14 +801,17 @@ def controlpoint_offsets_adf(scene, reference, apod_mask, lowpass_filter, destr_
             sub_end_y   = int(sub_strt_y + destr_info.ky - 1)
 
             #scene_subarr = scene[lx-pad_x:hx+pad_x, ly-pad_y:hy+pad_y]
-            scene_subarr = scene[sub_strt_x-pad_x:sub_end_x+pad_x+1, sub_strt_y-pad_y:sub_end_y+pad_y+1]
+            scene_subarr = scene[sub_strt_x-pad_x:sub_end_x+pad_x+1,
+                                 sub_strt_y-pad_y:sub_end_y+pad_y+1]
+            ref_subarr = reference[sub_strt_x:sub_end_x+1,
+                                   sub_strt_y:sub_end_y+1]
 
-            cc = np.zeros((2*pad_x + 1, 2*pad_y + 1))
+            cc = np.zeros((2*pad_x + 1, 2*pad_y + 1), order="F")
             for m in range(2*pad_x + 1):
                 for n in range(2*pad_y + 1):
                     #print(m,m+destr_info.kx, n,n+destr_info.ky )
                     cc[m, n] = -np.sum(np.abs(scene_subarr[m:m+destr_info.kx, n:n+destr_info.ky]
-                                                - subfield_fftconj[:, :, i, j]))**2
+                                              - ref_subarr))**adf_pow
 #                cc4 = np.zeros((2*pad_x + 1, 2*pad_y + 1, d_info.wx, d_info.wy))
 #                for m in range(2*pad_x + 1):
 #                    for n in range(2*pad_y + 1):
@@ -757,8 +820,8 @@ def controlpoint_offsets_adf(scene, reference, apod_mask, lowpass_filter, destr_
 
             xmax, ymax = crosscor_maxpos(cc)
 
-            subfield_offsets[0,i,j] = sub_strt_x + destr_info.kx + xmax - pad_x
-            subfield_offsets[1,i,j] = sub_strt_y + destr_info.ky + ymax - pad_y
+            subfield_offsets[0,i,j] = sub_strt_x + destr_info.kx/2 + xmax - pad_x
+            subfield_offsets[1,i,j] = sub_strt_y + destr_info.ky/2 + ymax - pad_y
 
     return subfield_offsets
 
@@ -792,7 +855,7 @@ def val(scene, ref, kernel):
      if errflg > 0:
          print("quitting - too many errors")
 
-def doreg(scene, r, d, d_info):
+def doreg(scene, r, d, destr_info):
     """
 
 
@@ -804,7 +867,7 @@ def doreg(scene, r, d, d_info):
         reference displacements of the control points
     d : TYPE
         Actual displacements of the control points
-    d_info: Destr class
+    destr_info: Destr class
         Destretch information
 
     Returns
@@ -815,7 +878,7 @@ def doreg(scene, r, d, d_info):
     """
 
     xy  = bilin_control_points(scene, r, d)
-    ans = bilin_values_scene(scene, xy, d_info)
+    ans = bilin_values_scene(scene, xy, destr_info)
 
     return ans
 
@@ -851,7 +914,7 @@ def mkcps_overlapping(ref, kernel, box_size):
     Create control point locations in the reference with overlapping cross
     correlation regions
     """
-    return d_info, rcps
+    return destr_info, rcps
 
 # *************************************************************************
 # ********************  FUNCTION: destr_control_points  *******************
@@ -876,7 +939,7 @@ def destr_control_points(reference, kernel, border_offset, spacing_ratio, mf=0.0
 
     Returns
     -------
-    d_info: Destr class
+    destr_info: Destr class
         Destructor info
 
     rcps : TYPE
@@ -992,7 +1055,7 @@ def destr_control_points(reference, kernel, border_offset, spacing_ratio, mf=0.0
 # ********************  END: destr_control_points  *******************
 
 
-def setup(scene, reference, kernel, d_info):
+def setup(scene, reference, kernel, destr_info):
 #def setup(scene, ref, kernel, d_info):
 
     # determine the number of pixels in the kernel
@@ -1037,7 +1100,7 @@ def setup(scene, reference, kernel, d_info):
 def undo():
     return
 
-def repair(ref, disp, d_info):
+def repair(ref, disp, destr_info):
     """
     Check if the displacements are good
 
@@ -1047,7 +1110,7 @@ def repair(ref, disp, d_info):
         reference coordinates
     disp : TYPE
         displacements to be checked
-    d_info : TYPE
+    destr_info : TYPE
         Destr info
 
     Returns
@@ -1095,7 +1158,7 @@ def repair(ref, disp, d_info):
         j += 1
     return good
 
-def cps(scene, ref, kernel, use_fft=False, adf2_pad=0.25):
+def cps(scene, ref, kernel, adf2_pad=0.25):
     """
     Control points for sequence destretch
 
@@ -1108,7 +1171,7 @@ def cps(scene, ref, kernel, use_fft=False, adf2_pad=0.25):
         Reference scene [nx, ny]
     kernel : TYPE
         Kernel size [kx, ky]
-    d_info : TYPE
+    destr_info : TYPE
         DESCRIPTION.
 
     Returns
@@ -1118,38 +1181,42 @@ def cps(scene, ref, kernel, use_fft=False, adf2_pad=0.25):
 
     """
 
-    d_info, rdisp = destr_control_points(ref, kernel)
+    destr_info, rdisp = destr_control_points(ref, kernel)
 
 
     #mm = np.zeros((d_info.wx,d_info.wy), order="F")
     #mm[:, :] = 1
-    mm = apod_mask(d_info.wx, d_info.wy, d_info.mf)
+    mm = apod_mask(destr_info.wx, destr_info.wy, destr_info.mf)
 
-    smou = np.zeros((d_info.wx,d_info.wy), order="F")
+    smou = np.zeros((destr_info.wx,destr_info.wy), order="F")
     smou[:, :] = 1
 
 
     ref = ref/np.average(ref)*np.average(scene)
-    subfield_fftconj = doref(ref, mm, d_info, use_fft)
+    subfield_fftconj = doref(ref, mm, destr_info)
 
     ssz = scene.shape
     nf = ssz[2]
-    ans = np.zeros((2, d_info.cpx, d_info.cpy, nf), order="F")
+    ans = np.zeros((2, destr_info.cpx, destr_info.cpy, nf), order="F")
 
 
 
     # compute control point locations
-    for frm in range(0, nf):
-        ans[:, :, :, frm] = controlpoint_offsets(scene[:, :, :, frm], subfield_fftconj, smou, d_info, use_fft, adf2_pad)
+    if destr_info.use_fft:
+        for frm in range(0, nf):
+            ans[:, :, :, frm] = controlpoint_offsets_fft(scene[:, :, :, frm], subfield_fftconj, smou, destr_info, adf2_pad)
+    else:
+        for frm in range(0, nf):
+            ans[:, :, :, frm] = controlpoint_offsets_adf(scene[:, :, :, frm], subfield_fftconj, smou, destr_info, adf2_pad)
         #ans[:, :, :, frm] = repair(rdisp, ans[:, :, :,frm], d_info)# optional repair
 
     if ssz[2]:
         scene = np.reshape(scene, (ssz[0], ssz[1]))
-        ans = np.reshape(ans, (2, d_info.cpx, d_info.cpy))
+        ans = np.reshape(ans, (2, destr_info.cpx, destr_info.cpy))
 
     return ans
 
-def reg(scene, ref, kernel_size, mf=0.08, use_fft=False, adf2_pad=0.25, border_offset=4, spacing_ratio=0.5):
+def reg(scene, ref, kernel_size, mf=0.08, use_fft=False, adf_pad=0.25, adf_pow=2, border_offset=4, spacing_ratio=0.5):
 # TODO: clean up control point offset calculations - move FFT specific calls (e.g. apod) into conditional
 # TODO: (here and elsewhere) rename d_info to destr_info
 # TODO: add crosscorrelation choice, other parameters to destr_info; rename destr_info.mf
@@ -1185,12 +1252,14 @@ def reg(scene, ref, kernel_size, mf=0.08, use_fft=False, adf2_pad=0.25, border_o
     ref -= ref.mean()
     kernel = np.zeros((kernel_size, kernel_size))
 
-    d_info, rdisp = destr_control_points(ref, kernel, border_offset, spacing_ratio, mf)
-    d_info.subfield_correction = 'mean_subtraction'
-    #d_info.subfield_correction = 'plane_subtraction'
+    destr_info, rdisp = destr_control_points(ref, kernel, border_offset, spacing_ratio, mf)
+    #destr_info.subfield_correction = 0
+    destr_info.subfield_correction = 1
     
-    apod_window = apod_mask(d_info.kx, d_info.ky, d_info.mf)
-    smou = smouth(d_info.kx, d_info.ky)
+    destr_info.use_fft = use_fft
+    
+    apod_window = apod_mask(destr_info.kx, destr_info.ky, destr_info.mf)
+    smou = smouth(destr_info.kx, destr_info.ky)
     #Condition the ref
 
     ssz = scene.shape
@@ -1199,13 +1268,17 @@ def reg(scene, ref, kernel_size, mf=0.08, use_fft=False, adf2_pad=0.25, border_o
     # compute control point locations
 
     #start = time()
-    #if offset_method == 'crosscor_fft': 
+    #if use_fft: 
     #    subfield_fftconj = doref(ref, apod_window, d_info, use_fft)
-    #    disp = controlpoint_offsets_crosscor(scene, subfield_fftconj, apod_window, smou, d_info,
-    #else if offset_method == 'adf':
+    #    disp = controlpoint_offsets_fft(scene, subfield_fftconj, apod_window, smou, d_info)
+    #else:
     #    disp = controlpoint_offsets_adf(scene, ref, smou, d_info,
 
-    disp = controlpoint_offsets(scene, subfield_fftconj, apod_window, smou, d_info, use_fft, adf2_pad)
+    if use_fft:
+        subfield_fftconj = doref(ref, apod_window, destr_info)
+        disp = controlpoint_offsets_fft(scene, subfield_fftconj, apod_window, smou, destr_info)
+    else:
+        disp = controlpoint_offsets_adf(scene, ref, destr_info, adf_pad, adf_pow)
     #end = time()
     #dtime = end - start
     #print(f"Time for a scene destretch is {dtime:.3f}")
@@ -1216,16 +1289,16 @@ def reg(scene, ref, kernel_size, mf=0.08, use_fft=False, adf2_pad=0.25, border_o
     #mdisp = np.mean(rdisp-disp,axis=(1, 2))
     #disp[0, :, :] += mdisp[0]
     #disp[1, :, :] += mdisp[1]
-    x = doreg(scene, rdisp, disp, d_info)
+    x = doreg(scene, rdisp, disp, destr_info)
     ans = x
         #    win = doref (x, mm); optional update of window
 
 #    print(f"Total destr took: {(end - start):.5f} seconds for kernel"
  #         +f"of size {kernel_size} px.")
 
-    return ans, disp, rdisp, d_info
+    return ans, disp, rdisp, destr_info
 
-def reg_saved_window(scene, subfield_fftconj, kernel_size, d_info, rdisp, mm, smou, use_fft=False, adf2_pad=0.25):
+def reg_saved_window(scene, subfield_fftconj, kernel_size, destr_info, rdisp, mm, smou, use_fft=False, adf2_pad=0.25):
     """
     Register scenes with respect to ref using kernel size and
     then returns the destretched scene, using precomputed window.
@@ -1264,7 +1337,7 @@ def reg_saved_window(scene, subfield_fftconj, kernel_size, d_info, rdisp, mm, sm
     # compute control point locations
 
     #start = time()
-    disp = controlpoint_offsets(scene, subfield_fftconj, mm, smou, d_info, use_fft, adf2_pad)
+    disp = controlpoint_offsets(scene, subfield_fftconj, mm, smou, destr_info, adf2_pad)
    # end = time()
   #  dtime = end - start
  #   print(f"Time for a scene destretch is {dtime:.3f}")
@@ -1275,7 +1348,7 @@ def reg_saved_window(scene, subfield_fftconj, kernel_size, d_info, rdisp, mm, sm
     #mdisp = np.mean(rdisp-disp,axis=(1, 2))
     #disp[0, :, :] += mdisp[0]
     #disp[1, :, :] += mdisp[1]
-    x = doreg(scene, rdisp, disp, d_info)
+    x = doreg(scene, rdisp, disp, destr_info)
     ans = x
         #    win = doref (x, mm); optional update of window
 
@@ -1285,7 +1358,7 @@ def reg_saved_window(scene, subfield_fftconj, kernel_size, d_info, rdisp, mm, sm
     #print(f"Total destr took: {(end - start):.5f} seconds for kernel"
     #      +f"of size {kernel_size} px.")
 
-    return ans, disp, rdisp, d_info
+    return ans, disp, rdisp, destr_info
 
 
 def reg_loop(scene, ref, kernel_sizes, mf=0.08, use_fft=False, adf2_pad=0.25):
@@ -1303,7 +1376,7 @@ def reg_loop(scene, ref, kernel_sizes, mf=0.08, use_fft=False, adf2_pad=0.25):
     -------
     ans : ndarray (nx, ny)
         Destretched scene
-    d_info: Destretch class
+    destr_info: Destretch class
         Parameters of the destretching
     """
 
@@ -1312,13 +1385,13 @@ def reg_loop(scene, ref, kernel_sizes, mf=0.08, use_fft=False, adf2_pad=0.25):
     start = time()
 
     for el in kernel_sizes:
-        scene_temp, disp, rdisp, d_info = reg(scene_temp, ref, el, mf, use_fft, adf2_pad)
+        scene_temp, disp, rdisp, destr_info = reg(scene_temp, ref, el, mf, use_fft, adf2_pad)
 
     end = time()
     print(f"Total elapsed time {(end - start):.4f} seconds.")
     ans = scene_temp
 
-    return ans, disp, rdisp, d_info
+    return ans, disp, rdisp, destr_info
 
 
 def reg_loop_series(scene, ref, kernel_sizes, mf=0.08, use_fft=False, adf2_pad=0.25, border_offset=4, spacing_ratio=0.5):
@@ -1336,7 +1409,7 @@ def reg_loop_series(scene, ref, kernel_sizes, mf=0.08, use_fft=False, adf2_pad=0
     -------
     ans : ndarray (nx, ny)
         Destretched scene
-    d_info: Destretch class
+    destr_info: Destretch class
         Parameters of the destretching
     """
 
@@ -1346,7 +1419,7 @@ def reg_loop_series(scene, ref, kernel_sizes, mf=0.08, use_fft=False, adf2_pad=0
     start = time()
     num_kernels = len(kernel_sizes)
     windows = {}
-    d_info_d = {}
+    destr_info_d = {}
     mm_d = {}
     smou_d = {}
     rdisp_d = {}
@@ -1357,17 +1430,17 @@ def reg_loop_series(scene, ref, kernel_sizes, mf=0.08, use_fft=False, adf2_pad=0
     for kernel1 in kernel_sizes:
         kernel = np.zeros((kernel1, kernel1))
 
-        d_info, rdisp = destr_control_points(ref, kernel, border_offset, spacing_ratio, mf)
-        d_info_d[kernel1] = d_info
+        destr_info, rdisp = destr_control_points(ref, kernel, border_offset, spacing_ratio, mf)
+        destr_info_d[kernel1] = destr_info
         rdisp_d[kernel1] = rdisp
 
-        mm = apod_mask(d_info.kx, d_info.ky, d_info.mf)
+        mm = apod_mask(destr_info.kx, destr_info.ky, destr_info.mf)
         mm_d[kernel1] = mm
 
-        smou = smouth(d_info.kx, d_info.ky)
+        smou = smouth(destr_info.kx, destr_info.ky)
         smou_d[kernel1] = smou
 
-        win = doref(ref, mm, d_info, use_fft)
+        win = doref(ref, mm, destr_info, use_fft)
         windows[kernel1] = win
         
     disp_l = list(rdisp.shape)
@@ -1377,9 +1450,9 @@ def reg_loop_series(scene, ref, kernel_sizes, mf=0.08, use_fft=False, adf2_pad=0
 
     for t in range(num_scenes):
         for k in kernel_sizes:
-            scene_d[:, :, t], disp, rdisp, d_info = reg_saved_window(scene[:, :, t],
+            scene_d[:, :, t], disp, rdisp, destr_info = reg_saved_window(scene[:, :, t],
                                                                      windows[k],
-                                                                     k, d_info_d[k],
+                                                                     k, destr_info_d[k],
                                                                      rdisp_d[k],
                                                                      mm_d[k],
                                                                      smou_d[k],
@@ -1391,11 +1464,11 @@ def reg_loop_series(scene, ref, kernel_sizes, mf=0.08, use_fft=False, adf2_pad=0
     print(f"Total elapsed time {(end - start):.4f} seconds.")
     ans = scene_d
 
-    return ans, disp_all, rdisp, d_info
+    return ans, disp_all, rdisp, destr_info
 
 def test_destretch(scene, ref, kernel_size, plot=False):
     start = time()
-    ans1, disp, rdisp, d_info = reg_loop(scene, ref, kernel_size)
+    ans1, disp, rdisp, destr_info = reg_loop(scene, ref, kernel_size)
     if plot==True:
         pl.figure(dpi=250)
         pl.imshow(scene, origin=0)
