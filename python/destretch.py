@@ -650,7 +650,7 @@ def doref(ref_image, apod_mask, destr_info):
 
     return subfields_fftconj
 
-def crosscor_maxpos(cc):
+def crosscor_maxpos(cc, order=1):
 
     mx  = np.amax(cc)
     loc = cc.argmax()
@@ -662,20 +662,29 @@ def crosscor_maxpos(cc):
     #a more complicated interpolation
     #(from Niblack, W: An Introduction to Digital Image Processing, p 139.)
 
-    if ((xmax*ymax > 0) and (xmax < (ccsz[0]-1))
-        and (ymax < (ccsz[1]-1))):
-    #if (1 == 1):
-        denom = 2 * mx - cc[xmax-1,ymax] - cc[xmax+1,ymax]
-        xfra = (xmax-1/2) + (mx-cc[xmax-1,ymax])/denom
+    if xmax*ymax > 0 and xmax < (ccsz[0]-1) and ymax < (ccsz[1]-1):
+        if order == 1:
+            denom = 2 * mx - cc[xmax-1,ymax] - cc[xmax+1,ymax]
+            xfra = (xmax-1/2) + (mx-cc[xmax-1,ymax])/denom
 
-        denom = 2 * mx - cc[xmax,ymax-1] - cc[xmax,ymax+1]
-        yfra = (ymax-1/2) + (mx-cc[xmax,ymax-1])/denom
+            denom = 2 * mx - cc[xmax,ymax-1] - cc[xmax,ymax+1]
+            yfra = (ymax-1/2) + (mx-cc[xmax,ymax-1])/denom
 
-        # breakpoint()
-        xmax=yfra
-        ymax=xfra
+            xmax=xfra
+            ymax=yfra
+        elif order == 2:
+            a2 = (cc[xmax+1, ymax] - cc[xmax-1, ymax])/2.
+            a3 = (cc[xmax+1, ymax]/2. - cc[xmax, ymax] + cc[xmax-1, ymax]/2.)
+            a4 = (cc[xmax, ymax+1] - cc[xmax, ymax-1])/2.
+            a5 = (cc[xmax, ymax+1]/2. - cc[xmax, ymax] + cc[xmax, ymax-1]/2.)
+            a6 = (cc[xmax+1, ymax+1] - cc[xmax+1, ymax-1] 
+                - cc[xmax-1, ymax+1] + cc[xmax-1, ymax-1])/4.
+            xdif = (2*a2*a5 - a4*a6) / (a6**2 - 4*a3*a5)
+            ydif = (2*a3*a4 - a2*a6) / (a6**2 - 4*a3*a5)
+            xmax = xmax + xdif
+            ymax = ymax + ydif
 
-    return xmax, ymax
+    return ymax, xmax
 
 # **********************************************************
 # ******************** FUNCTION: controlpoint_offsets_fft  *******************
@@ -737,7 +746,7 @@ def controlpoint_offsets_fft(scene, subfield_fftconj, apod_mask, lowpass_filter,
             #cc = np.fft.fftshift(scene_subarr_ifft)
             cc = np.array(cc, order="F")
 
-            xmax, ymax = crosscor_maxpos(cc)
+            xmax, ymax = crosscor_maxpos(cc, destr_info.max_fit_method)
 
             subfield_offsets[0,i,j] = sub_strt_x + xmax
             subfield_offsets[1,i,j] = sub_strt_y + ymax
@@ -818,7 +827,7 @@ def controlpoint_offsets_adf(scene, reference, destr_info, adf_pad=0.25, adf_pow
 #                        cc4[m, n] = ss[m:m+d_info.wx, n:n+d_info.wy]
 #                cc = -np.sum(np.abs(cc4 - w[:, :, i, j]), (2, 3))**2
 
-            xmax, ymax = crosscor_maxpos(cc)
+            xmax, ymax = crosscor_maxpos(cc, destr_info.max_fit_method)
 
             subfield_offsets[0,i,j] = sub_strt_x + destr_info.kx/2 + xmax - pad_x
             subfield_offsets[1,i,j] = sub_strt_y + destr_info.ky/2 + ymax - pad_y
